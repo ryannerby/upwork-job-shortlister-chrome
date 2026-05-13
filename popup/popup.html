@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <!-- Header -->
+    <div class="header">
+      <h1>Upwork Shortlist</h1>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="controls-row">
+        <select id="sortBy" title="Sort by">
+          <option value="rating">Rating (high first)</option>
+          <option value="shortlistedAt">Date added</option>
+          <option value="title">Title A-Z</option>
+        </select>
+        <select id="filterBy" title="Filter">
+          <option value="all">All jobs</option>
+          <option value="unrated">Unrated</option>
+          <option value="applied">Applied</option>
+          <option value="rated">Rated</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="controls-row">
+        <button id="openAllBtn" class="btn btn-primary" title="Open all non-rejected jobs in tabs">Open All in Tabs</button>
+        <button id="clearBtn" class="btn btn-danger">Clear List</button>
+      </div>
+    </div>
+
+    <!-- Clear confirmation -->
+    <div class="clear-confirm" id="clearConfirm" style="display:none">
+      <span>Remove all jobs?</span>
+      <button id="clearYes" class="btn btn-danger-sm">Yes, clear</button>
+      <button id="clearNo" class="btn btn-ghost-sm">Cancel</button>
+    </div>
+
+    <!-- Job list -->
+    <div class="job-list" id="jobList"></div>
+
+    <!-- Empty state -->
+    <div class="empty" id="empty" style="display:none">
+      <p>No jobs shortlisted yet.</p>
+      <p class="muted">Browse Upwork and click the + button on job cards to add them here.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
