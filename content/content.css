@@ -1,18 +1,122 @@
 /* ==========================================================
    Upwork Job Shortlister - Content Script Styles
+   Aesthetic: warm, calming, soft. Think Notion / Things / Bear.
    ========================================================== */
 
-/* Search results - button group */
-.ujs-btn-group {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 100;
-  display: flex;
-  gap: 4px;
+:root {
+  /* Warm neutrals */
+  --ujs-cream:       #FAF7F2;
+  --ujs-ink:         #3D3A36;
+  --ujs-muted:       #8A857F;
+
+  /* Soft accents */
+  --ujs-sage:        #7FA88E;
+  --ujs-sage-tint:   rgba(127, 168, 142, 0.16);
+  --ujs-sage-strong: #5E8A6F;
+
+  --ujs-blush:       #C97B7B;
+  --ujs-blush-tint:  rgba(201, 123, 123, 0.14);
+
+  --ujs-amber:       #C99459;
+  --ujs-amber-tint:  rgba(201, 148, 89, 0.16);
+
+  --ujs-mist:        #8BA8C0;
+  --ujs-mist-tint:   rgba(139, 168, 192, 0.16);
+
+  /* Soft layered shadows — gentle, not contrasting */
+  --ujs-shadow-soft: 0 1px 3px rgba(60, 50, 40, 0.06), 0 4px 12px rgba(60, 50, 40, 0.05);
+  --ujs-shadow-lift: 0 4px 16px rgba(60, 50, 40, 0.10), 0 12px 32px rgba(60, 50, 40, 0.06);
+
+  /* Friendly radius */
+  --ujs-r-sm: 6px;
+  --ujs-r-md: 10px;
+  --ujs-r-lg: 14px;
+  --ujs-r-xl: 20px;
+
+  --ujs-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ujs-dur: 180ms;
+
+  --ujs-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
 }
 
-/* Search results - shortlist button */
+/* ----------------------------------------------------------
+   Button group — same size + visual weight as Upwork's
+   native action buttons. Consistent across all pages.
+   ---------------------------------------------------------- */
+.ujs-btn-group {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  display: flex;
+  gap: 6px;
+  font-family: var(--ujs-font);
+}
+
+/* Inline mode: when injected next to Upwork's native heart/dislike,
+   flow naturally instead of corner-anchored, and match their shape */
+.ujs-btn-group-inline {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  z-index: auto;
+}
+
+.ujs-btn-group-inline .ujs-shortlist-btn,
+.ujs-btn-group-inline .ujs-reject-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: 600;
+  opacity: 1;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ujs-btn-group-inline .ujs-shortlist-btn:hover {
+  background: var(--ujs-sage-tint);
+  border-color: var(--ujs-sage);
+  color: var(--ujs-sage);
+}
+
+.ujs-btn-group-inline .ujs-reject-btn:hover {
+  background: var(--ujs-blush-tint);
+  border-color: var(--ujs-blush);
+  color: var(--ujs-blush);
+}
+
+.ujs-btn-group-inline .ujs-shortlist-btn.ujs-shortlisted {
+  background: var(--ujs-sage-tint);
+  border-color: var(--ujs-sage);
+  color: var(--ujs-sage);
+}
+
+.ujs-btn-group-inline .ujs-shortlist-btn.ujs-applied {
+  background: var(--ujs-mist-tint);
+  border-color: var(--ujs-mist);
+  color: var(--ujs-mist);
+}
+
+.ujs-btn-group-inline .ujs-reject-btn.ujs-rejected {
+  background: var(--ujs-blush-tint);
+  border-color: var(--ujs-blush);
+  color: var(--ujs-blush);
+}
+
+@media (prefers-color-scheme: light) {
+  .ujs-btn-group-inline .ujs-shortlist-btn,
+  .ujs-btn-group-inline .ujs-reject-btn {
+    border-color: rgba(60, 50, 40, 0.22);
+    color: var(--ujs-ink);
+  }
+}
+
 .ujs-shortlist-btn,
 .ujs-reject-btn {
   display: flex;
@@ -21,159 +125,168 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  background: transparent;
+  color: #FFFFFF;
   font-size: 18px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  font-weight: 600;
   line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  opacity: 1;
+  transition:
+    background-color var(--ujs-dur) var(--ujs-ease),
+    border-color var(--ujs-dur) var(--ujs-ease),
+    color var(--ujs-dur) var(--ujs-ease),
+    transform var(--ujs-dur) var(--ujs-ease);
 }
 
-.ujs-shortlist-btn {
-  border: 2px solid #22c55e;
-  background: #fff;
-  color: #22c55e;
-}
-
-.ujs-shortlist-btn:hover {
-  background: #22c55e;
-  color: #fff;
-  transform: scale(1.1);
-}
-
-.ujs-shortlist-btn.ujs-shortlisted {
-  background: #22c55e;
-  color: #fff;
-  border-color: #22c55e;
-  cursor: default;
-}
-
-/* Applied state */
-.ujs-shortlist-btn.ujs-applied {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
-  cursor: default;
-  font-size: 14px;
-}
-
-/* Reject button */
-.ujs-reject-btn {
-  border: 2px solid #d1d5db;
-  background: #fff;
-  color: #9ca3af;
-}
-
+.ujs-shortlist-btn:hover,
 .ujs-reject-btn:hover {
-  border-color: #dc2626;
-  color: #dc2626;
-  transform: scale(1.1);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+.ujs-shortlist-btn:active,
+.ujs-reject-btn:active {
+  transform: scale(0.94);
+}
+
+/* Active / committed states */
+.ujs-shortlist-btn.ujs-shortlisted {
+  background: var(--ujs-sage-tint);
+  border-color: rgba(127, 168, 142, 0.42);
+  color: var(--ujs-sage);
+}
+
+.ujs-shortlist-btn.ujs-applied {
+  background: var(--ujs-mist-tint);
+  border-color: rgba(139, 168, 192, 0.42);
+  color: var(--ujs-mist);
 }
 
 .ujs-reject-btn.ujs-rejected {
-  background: #dc2626;
-  color: #fff;
-  border-color: #dc2626;
-  cursor: default;
+  background: var(--ujs-blush-tint);
+  border-color: rgba(201, 123, 123, 0.42);
+  color: var(--ujs-blush);
 }
 
-/* Shortlisted card overlay */
-.ujs-card-shortlisted {
-  position: relative;
+/* ----------------------------------------------------------
+   Light-host adjustments — when Upwork shows light theme,
+   our buttons need a darker tint to read properly
+   ---------------------------------------------------------- */
+@media (prefers-color-scheme: light) {
+  .ujs-shortlist-btn,
+  .ujs-reject-btn {
+    background: rgba(60, 50, 40, 0.04);
+    border-color: rgba(60, 50, 40, 0.10);
+    color: rgba(60, 50, 40, 0.62);
+  }
+
+  .ujs-shortlist-btn:hover,
+  .ujs-reject-btn:hover {
+    background: rgba(60, 50, 40, 0.08);
+    border-color: rgba(60, 50, 40, 0.18);
+    color: var(--ujs-ink);
+  }
 }
 
-.ujs-card-shortlisted::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(34, 197, 94, 0.06);
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 1;
+/* ----------------------------------------------------------
+   Notifications page — keep alignment, just shift left
+   to clear Upwork's native × dismiss button
+   ---------------------------------------------------------- */
+.notifications-list__item .ujs-btn-group {
+  top: 50%;
+  right: 64px;
+  transform: translateY(-50%);
 }
 
-.ujs-card-shortlisted .ujs-btn-group {
-  z-index: 2;
-}
-
-/* Applied card overlay */
-.ujs-card-applied {
-  position: relative;
-}
-
-.ujs-card-applied::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(37, 99, 235, 0.06);
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.ujs-card-applied .ujs-btn-group {
-  z-index: 2;
-}
-
-/* Dim rejected job cards */
+/* ----------------------------------------------------------
+   Card-level state — soft side stripe in accent color
+   ---------------------------------------------------------- */
+.ujs-card-shortlisted,
+.ujs-card-applied,
 .ujs-card-rejected {
   position: relative;
 }
 
-.ujs-card-rejected::after {
+.ujs-card-shortlisted::before,
+.ujs-card-applied::before,
+.ujs-card-rejected::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  border-radius: inherit;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
   pointer-events: none;
   z-index: 1;
 }
 
+.ujs-card-shortlisted::before { background: var(--ujs-sage); }
+.ujs-card-applied::before     { background: var(--ujs-mist); }
+.ujs-card-rejected::before    { background: var(--ujs-blush); }
+
+.ujs-card-rejected > *:not(.ujs-btn-group) {
+  opacity: 0.4;
+  transition: opacity var(--ujs-dur) var(--ujs-ease);
+}
+.ujs-card-rejected:hover > *:not(.ujs-btn-group) {
+  opacity: 0.7;
+}
 .ujs-card-rejected .ujs-btn-group {
   z-index: 2;
 }
 
-.ujs-card-rejected > *:not(.ujs-btn-group) {
-  opacity: 0.4;
-}
-
-.ujs-card-rejected:hover > *:not(.ujs-btn-group) {
-  opacity: 0.65;
-}
-
-/* Job detail - floating shortlist button */
+/* ----------------------------------------------------------
+   Detail page floating button
+   ---------------------------------------------------------- */
 .ujs-detail-btn {
   position: fixed;
   bottom: 80px;
-  right: 20px;
+  right: 24px;
   z-index: 999998;
-  padding: 10px 20px;
-  border-radius: 8px;
-  border: 2px solid #22c55e;
-  background: #fff;
-  color: #22c55e;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--ujs-r-lg);
+  border: 1px solid rgba(127, 168, 142, 0.30);
+  background: var(--ujs-cream);
+  color: var(--ujs-sage-strong);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--ujs-font);
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all 0.15s ease;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: var(--ujs-shadow-lift);
+  transition:
+    background-color var(--ujs-dur) var(--ujs-ease),
+    border-color var(--ujs-dur) var(--ujs-ease),
+    color var(--ujs-dur) var(--ujs-ease),
+    transform var(--ujs-dur) var(--ujs-ease);
 }
 
 .ujs-detail-btn:hover {
-  background: #22c55e;
-  color: #fff;
+  background: #fff;
+  border-color: rgba(127, 168, 142, 0.50);
+}
+
+.ujs-detail-btn:active {
+  transform: scale(0.97);
 }
 
 .ujs-detail-btn.ujs-shortlisted {
-  background: #22c55e;
+  background: var(--ujs-sage);
   color: #fff;
-  border-color: #22c55e;
+  border-color: var(--ujs-sage);
   cursor: default;
 }
 
-/* Hide the review overlay host from normal flow */
+.ujs-detail-btn.ujs-shortlisted:hover {
+  background: var(--ujs-sage);
+}
+
+/* ----------------------------------------------------------
+   Review overlay host
+   ---------------------------------------------------------- */
 .ujs-review-host {
   position: relative;
   z-index: 999999;

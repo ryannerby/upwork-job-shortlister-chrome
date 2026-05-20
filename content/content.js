@@ -23,7 +23,7 @@
     },
     // Job detail page
     detail: {
-      title: 'h4.m-0, header h4, [data-test="JobDescription"] h4, .job-details-header h4',
+      title: 'h4.m-0, header h4, [data-test="JobDescription"] h4, .job-details-header h4, h1[class*="job-title" i], h2[class*="job-title" i], [data-test="job-title"], [data-test*="JobTitle"], h1.m-0, h2.m-0',
       budget: '[data-test="BudgetAmount"], [data-test="job-type-label"], .budget-amount',
       budgetType: '[data-test="job-type-label"]',
       clientCountry: '[data-test="client-country"], .client-location, [data-test="LocationLabel"]',
@@ -46,6 +46,9 @@
       (path.startsWith('/ab/notifications') && /[?&]tab=job_alerts\b/.test(search))
     ) {
       return 'search';
+    }
+    if (/\/(ab\/)?proposals\/job\/~\d+/.test(path) || /\/apply\b/.test(path)) {
+      return 'proposal';
     }
     if (path.match(/\/jobs\/.*~\d+/)) {
       return 'detail';
@@ -151,7 +154,11 @@
   // ----------------------------------------------------------
   function scrapeDetailPage() {
     const s = SELECTORS.detail;
-    const title = safeTextMulti(document, s.title);
+    let title = safeTextMulti(document, s.title);
+    // Fallback: derive from <title> tag (e.g. "Job Name | Upwork")
+    if (!title && document.title) {
+      title = document.title.replace(/\s*[|·-]\s*Upwork.*$/i, '').trim() || null;
+    }
     const budget = safeTextMulti(document, s.budget);
     const budgetTypeText = safeTextMulti(document, s.budgetType);
     const clientCountry = safeTextMulti(document, s.clientCountry);
@@ -163,6 +170,26 @@
     const fullDesc = descEl ? descEl.textContent.trim() : '';
     const descriptionSnippet = fullDesc.substring(0, 200);
 
+    // Best-effort heuristic scrapes for Notion sync — silently null on miss
+    const bodyText = document.body.innerText || '';
+    const proposalsMatch = bodyText.match(/Proposals?:\s*([^\n]{1,40})/i);
+    const proposalsText = proposalsMatch ? proposalsMatch[1].trim() : null;
+    const hireRateMatch = bodyText.match(/(\d{1,3})\s*%\s*(?:hire rate|job success)/i);
+    // Match $100K+ spent / $1.2M+ spent / $5,400 spent (with or without "total")
+    const totalSpendMatch = bodyText.match(/\$([\d,.]+)\s*([KMkm])?\+?\s+(?:total\s+)?spent/i);
+    const avgHourlyMatch = bodyText.match(/\$([\d.]+)\s*\/\s*hr\s+avg/i);
+    // Match the rating that precedes "of N reviews" (e.g. "5.00 of 29 reviews")
+    // — works whether the page shows "5.0\n5.00 of 29 reviews" or one line.
+    const clientRatingMatch = bodyText.match(/(\d\.\d{1,2})[\s\S]{0,30}of\s+\d+\s*reviews?/i);
+
+    // Normalize spend with K/M multiplier
+    let clientTotalSpend = null;
+    if (totalSpendMatch) {
+      const num = parseFloat(totalSpendMatch[1].replace(/,/g, ''));
+      const mult = (totalSpendMatch[2] || '').toUpperCase();
+      clientTotalSpend = mult === 'M' ? num * 1_000_000 : mult === 'K' ? num * 1_000 : num;
+    }
+
     return {
       title,
       budget,
@@ -172,6 +199,11 @@
       postedTimestamp: parsePostedDate(postedDate),
       skills,
       descriptionSnippet,
+      proposalsText,
+      clientHireRate: hireRateMatch ? parseInt(hireRateMatch[1]) / 100 : null,
+      clientTotalSpend,
+      clientAvgHourly: avgHourlyMatch ? parseFloat(avgHourlyMatch[1]) : null,
+      clientRating: clientRatingMatch ? parseFloat(clientRatingMatch[1]) : null,
     };
   }
 
@@ -379,9 +411,76 @@
       const existingJob = jobs[jobData.id] || null;
       const wrap = createSearchButtons(jobData, existingJob);
 
-      card.style.position = card.style.position || 'relative';
-      card.appendChild(wrap);
+      // Try to inject inline with Upwork's native action buttons
+      // (heart / dislike / save). Fall back to absolute corner.
+      const nativeAction = findNativeActionAnchor(card);
+      if (nativeAction) {
+        wrap.classList.add('ujs-btn-group-inline');
+        // Walk up to the shared parent that contains ALL native action buttons,
+        // then prepend so our pair sits at the leftmost edge of the toolbar.
+        const group = findActionGroupContainer(nativeAction, card);
+        group.insertBefore(wrap, group.firstChild);
+      } else {
+        card.style.position = card.style.position || 'relative';
+        card.appendChild(wrap);
+      }
     });
+  }
+
+  // Locate the LEFTMOST of Upwork's native action buttons (heart/dislike/save)
+  // so we can prepend our buttons in front of the whole group.
+  function findNativeActionAnchor(card) {
+    const allCandidates = [];
+    const selectors = [
+      '[data-test="job-feedback-save-button"]',
+      '[data-test="job-feedback"]',
+      'button[aria-label^="Save job" i]',
+      'button[aria-label*="dislike" i]',
+      'button[aria-label*="not interested" i]',
+      'button[aria-label*="like" i]',
+      'button[aria-label*="save" i]',
+      'button[data-test*="dislike" i]',
+      'button[data-test*="like" i]',
+      '[data-test="dislike-button"]',
+      '[data-test="save-job-button"]',
+    ];
+    for (const sel of selectors) {
+      try {
+        card.querySelectorAll(sel).forEach(b => allCandidates.push(b));
+      } catch (e) { /* skip */ }
+    }
+    if (!allCandidates.length) return null;
+    // Pick the one with the smallest left coordinate — the leftmost button
+    let leftmost = allCandidates[0];
+    let minX = leftmost.getBoundingClientRect().left;
+    for (const b of allCandidates) {
+      const x = b.getBoundingClientRect().left;
+      if (x < minX) { minX = x; leftmost = b; }
+    }
+    return leftmost;
+  }
+
+  // Find the inner toolbar row that holds Upwork's native action buttons
+  // (thumbs-down + heart). On /search/jobs this is .job-tile-actions > .d-flex
+  // — the thumbs-down has no aria-label so we can't rely on querying buttons.
+  function findActionGroupContainer(anchorBtn, card) {
+    // Preferred: Upwork's known structure. On /search/jobs there's an inner
+    // .d-flex row inside .job-tile-actions; on feed pages there isn't —
+    // .job-tile-actions itself directly contains the dislike + save siblings.
+    const actionsCol = card.querySelector('.job-tile-actions');
+    if (actionsCol) {
+      const innerRow = actionsCol.querySelector('.d-flex');
+      return innerRow || actionsCol;
+    }
+    // Fallback: walk up looking for an ancestor with multiple button-like children
+    let el = anchorBtn.parentElement;
+    while (el && el !== card) {
+      try {
+        if (el.querySelectorAll('button, [role="button"]').length >= 2) return el;
+      } catch (e) { /* skip */ }
+      el = el.parentElement;
+    }
+    return anchorBtn.parentElement;
   }
 
   // ----------------------------------------------------------
@@ -447,106 +546,136 @@
       <style>
         :host {
           all: initial;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
         }
         .overlay {
           position: fixed;
-          bottom: 20px;
-          right: 20px;
+          bottom: 22px;
+          right: 22px;
           width: 280px;
-          background: #fff;
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+          background: #FBF8F3;
+          border: 1px solid rgba(60, 50, 40, 0.10);
+          border-radius: 14px;
+          box-shadow: 0 4px 16px rgba(60, 50, 40, 0.10), 0 12px 32px rgba(60, 50, 40, 0.06);
+          color: #3D3A36;
           z-index: 999999;
           overflow: hidden;
-          transition: transform 0.2s ease, opacity 0.2s ease;
+          transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
         }
         .overlay.minimized {
           width: auto;
           border-radius: 50%;
+          background: transparent;
+          border: none;
+          box-shadow: none;
         }
         .overlay.minimized .overlay-body { display: none; }
-        .overlay.minimized .overlay-header { border: none; padding: 10px; }
+        .overlay.minimized .overlay-header { border: none; padding: 6px; background: transparent; }
+        .overlay.minimized .overlay-header span { display: none; }
+        .overlay.minimized .minimize-btn {
+          color: #7FA88E;
+          font-size: 22px;
+          opacity: 0.7;
+          background: #FBF8F3;
+          border: 1px solid rgba(127, 168, 142, 0.30);
+          border-radius: 50%;
+          width: 36px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 6px rgba(60, 50, 40, 0.06);
+        }
+        .overlay.minimized .minimize-btn:hover { opacity: 1; background: #fff; }
         .overlay-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 10px 14px;
-          background: #14532d;
-          color: #fff;
+          padding: 12px 16px;
+          background: transparent;
+          color: #3D3A36;
           font-size: 13px;
           font-weight: 600;
+          letter-spacing: -0.01em;
           cursor: pointer;
+          border-bottom: 1px solid rgba(60, 50, 40, 0.08);
         }
         .overlay-header span { flex: 1; }
         .minimize-btn {
           background: none;
           border: none;
-          color: #fff;
+          color: #8A857F;
           font-size: 16px;
           cursor: pointer;
-          padding: 0 4px;
-          opacity: 0.8;
+          padding: 2px 6px;
+          opacity: 0.7;
+          border-radius: 4px;
+          line-height: 1;
+          transition: opacity 100ms ease, background-color 100ms ease;
         }
-        .minimize-btn:hover { opacity: 1; }
+        .minimize-btn:hover { opacity: 1; background: rgba(60, 50, 40, 0.05); }
         .overlay-body {
-          padding: 14px;
+          padding: 16px;
         }
         .stars {
           display: flex;
           gap: 4px;
-          margin-bottom: 12px;
+          margin-bottom: 14px;
           justify-content: center;
         }
         .star {
-          font-size: 28px;
+          font-size: 26px;
           cursor: pointer;
           background: none;
           border: none;
           padding: 2px;
-          color: #d1d5db;
-          transition: color 0.15s, transform 0.15s;
+          color: #D6D2CB;
+          transition: color 120ms ease, transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
           line-height: 1;
         }
-        .star:hover { transform: scale(1.15); }
-        .star.active { color: #f59e0b; }
+        .star:hover { transform: scale(1.12); color: #C99459; }
+        .star.active { color: #C99459; }
         .actions {
           display: flex;
           gap: 8px;
           justify-content: center;
         }
         .btn {
-          padding: 6px 14px;
-          border-radius: 6px;
-          border: 1px solid #e5e7eb;
+          padding: 7px 16px;
+          border-radius: 8px;
+          border: 1px solid rgba(60, 50, 40, 0.12);
           background: #fff;
+          color: #3D3A36;
           cursor: pointer;
           font-size: 12px;
           font-weight: 500;
-          transition: background 0.15s;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+          font-family: inherit;
         }
-        .btn:hover { background: #f3f4f6; }
+        .btn:hover { background: #F4EFE7; border-color: rgba(60, 50, 40, 0.18); }
         .btn-reject {
-          color: #dc2626;
-          border-color: #fecaca;
+          color: #C97B7B;
+          border-color: rgba(201, 123, 123, 0.30);
+          background: rgba(201, 123, 123, 0.06);
         }
-        .btn-reject:hover { background: #fef2f2; }
+        .btn-reject:hover { background: rgba(201, 123, 123, 0.12); border-color: rgba(201, 123, 123, 0.50); }
         .btn-reject.active {
-          background: #dc2626;
+          background: #C97B7B;
           color: #fff;
-          border-color: #dc2626;
+          border-color: #C97B7B;
         }
         .btn-restore {
-          color: #059669;
-          border-color: #a7f3d0;
+          color: #5E8A6F;
+          border-color: rgba(127, 168, 142, 0.30);
+          background: rgba(127, 168, 142, 0.08);
         }
-        .btn-restore:hover { background: #ecfdf5; }
+        .btn-restore:hover { background: rgba(127, 168, 142, 0.16); }
         .status-text {
           text-align: center;
           font-size: 11px;
-          color: #6b7280;
-          margin-top: 8px;
+          color: #8A857F;
+          margin-top: 10px;
+          letter-spacing: 0.005em;
         }
       </style>
       <div class="overlay" id="overlay">
@@ -652,6 +781,8 @@
       minimized = !minimized;
       overlay.classList.toggle('minimized', minimized);
       minimizeBtn.textContent = minimized ? '\u2605' : '_';
+      const detailBtn = document.querySelector('.ujs-detail-btn');
+      if (detailBtn) detailBtn.style.display = minimized ? 'none' : '';
     });
 
     document.body.appendChild(host);
@@ -683,13 +814,19 @@
   }
 
   // Detect application on proposal/confirmation pages
-  // After submitting, Upwork may show a confirmation on /proposals/job/~ID or similar
+  // Post-submit URL is /nx/proposals/{proposalId}?success which has NO job ID,
+  // so we fall back to the jobId we stashed at submit-click time.
   async function detectAppliedOnProposalPage() {
     if (!contextValid()) return;
     const path = window.location.pathname;
+    const queryString = window.location.search;
 
-    // Extract job ID from proposal page URL (e.g. /proposals/job/~0123456789/)
-    const jobId = getJobIdFromUrl(window.location.href);
+    let jobId = getJobIdFromUrl(window.location.href);
+    if (!jobId) {
+      // Fall back to the pending application we stashed when user clicked submit
+      const stash = await new Promise(r => chrome.storage.local.get({ pendingApplication: null }, r));
+      jobId = stash.pendingApplication?.jobId || null;
+    }
     if (!jobId) return;
 
     const jobs = await getJobs();
@@ -697,16 +834,260 @@
     if (!job || job.status === 'applied') return;
 
     const bodyText = document.body.innerText.toLowerCase();
-    const isConfirmation = bodyText.includes('proposal submitted') ||
-                           bodyText.includes('your proposal') ||
-                           bodyText.includes('submitted successfully') ||
-                           bodyText.includes('already submitted a proposal') ||
-                           bodyText.includes('view proposal');
+    const onApplyForm = /\/apply\b/.test(path);
+
+    // Strong markers — trust anywhere
+    const strongMatch = bodyText.includes('your proposal was submitted') ||
+                        bodyText.includes('proposal submitted') ||
+                        bodyText.includes('submitted successfully') ||
+                        bodyText.includes('your proposal has been sent') ||
+                        bodyText.includes('successfully sent your proposal') ||
+                        bodyText.includes('already submitted a proposal');
+
+    // Strong URL signal: ?success query param after submission
+    const successQuery = /[?&]success(=|&|$)/.test(queryString);
+
+    // Broad markers that ALSO match the empty /apply/ form page — trust only
+    // when we're NOT on the apply form (i.e. user has already navigated to
+    // the post-submit confirmation/details page)
+    const broadMatch = !onApplyForm && (
+      bodyText.includes('your proposal') ||
+      bodyText.includes('view proposal')
+    );
+
+    // URL-based fallback: confirmation pages live at /nx/proposals/{proposalId}
+    // (no job ID, just a numeric proposal ID) — intrinsically post-submit.
+    const urlBasedMatch = !onApplyForm && /\/proposals\/(\d+|job\/~\d+)/.test(path);
+
+    const isConfirmation = strongMatch || broadMatch || urlBasedMatch || successQuery;
 
     if (isConfirmation) {
       job.status = 'applied';
       await saveJob(job);
+      // Capture for review/push from the popup
+      pushApplicationToNotion(jobId).catch(() => {});
     }
+  }
+
+  // ----------------------------------------------------------
+  // Proposal page: scrape submit form + push to Notion
+  // ----------------------------------------------------------
+  function scrapeProposalForm() {
+    // Best-effort — Upwork's proposal form selectors change. Multiple fallbacks.
+    const findValue = (selectors) => {
+      for (const sel of selectors) {
+        try {
+          const el = document.querySelector(sel);
+          if (el && (el.value || el.textContent)) {
+            return (el.value || el.textContent).trim();
+          }
+        } catch (e) { /* skip */ }
+      }
+      return null;
+    };
+
+    const coverLetter = findValue([
+      'textarea[aria-label*="cover letter" i]',
+      'textarea[name*="cover" i]',
+      'textarea[data-test*="cover" i]',
+      '.cover-letter textarea',
+      'textarea',
+    ]);
+
+    const rateStr = findValue([
+      'input[aria-label*="hourly rate" i]',
+      'input[aria-label*="bid" i]',
+      'input[name*="rate" i]',
+      'input[name*="bid" i]',
+      'input[data-test*="rate" i]',
+      'input[type="number"]',
+    ]);
+    const rateSubmitted = rateStr ? parseFloat(rateStr.replace(/[^\d.]/g, '')) : null;
+
+    // Boost: Upwork now uses a numeric "Bid to boost" input, not a checkbox.
+    // Treat as used when value > 0.
+    let boostUsed = false;
+    let boostAmount = null;
+    document.querySelectorAll('input[type="number"], input[inputmode="numeric"]').forEach(input => {
+      const label = (input.closest('label')?.textContent ||
+                     input.getAttribute('aria-label') ||
+                     input.previousElementSibling?.textContent ||
+                     '').toLowerCase();
+      if (/boost/i.test(label)) {
+        const v = parseFloat(input.value);
+        if (!isNaN(v)) {
+          boostAmount = v;
+          if (v > 0) boostUsed = true;
+        }
+      }
+    });
+
+    const bodyText = document.body.innerText || '';
+
+    // Connects: prefer the submit button text ("Send for 11 Connects"), fall back to body
+    let connectsSpent = null;
+    const sendBtn = Array.from(document.querySelectorAll('button')).find(b =>
+      /^send\s+for\s+\d+\s+connects?/i.test((b.textContent || '').trim())
+    );
+    if (sendBtn) {
+      const m = sendBtn.textContent.match(/(\d+)\s+connects?/i);
+      if (m) connectsSpent = parseInt(m[1]);
+    }
+    if (connectsSpent === null) {
+      const m = bodyText.match(/proposal\s+requires?\s+(\d+)\s+connects?/i) ||
+                bodyText.match(/(\d+)\s+connects?\s+(?:required|to submit|will be used)/i);
+      if (m) connectsSpent = parseInt(m[1]);
+    }
+
+    // Page-state snapshot — scrape client info from the proposal page's
+    // sidebar right when the user submits. This is more reliable than
+    // relying on cached detail-page data (user may have applied directly
+    // from search results without visiting the job page first).
+    const snapshot = scrapeClientInfoFromPage();
+
+    return { coverLetter, rateSubmitted, boostUsed, boostAmount, connectsSpent, ...snapshot };
+  }
+
+  // Scrape client info from the current page (works on detail and proposal pages)
+  function scrapeClientInfoFromPage() {
+    const bodyText = document.body.innerText || '';
+
+    const hireRateMatch = bodyText.match(/(\d{1,3})\s*%\s*(?:hire rate|job success)/i);
+    const totalSpendMatch = bodyText.match(/\$([\d,.]+)\s*([KMkm])?\+?\s+(?:total\s+)?spent/i);
+    // Scope avg-hourly to the value followed by "avg" / "avg hourly" — avoids
+    // matching past-contract rates like "$10.00/hr" near "17 hrs @"
+    const avgHourlyMatch = bodyText.match(/\$([\d.]+)\s*\/\s*hr\s+avg/i);
+    // Match the rating that precedes "of N reviews" (e.g. "5.00 of 29 reviews")
+    // — works whether the page shows "5.0\n5.00 of 29 reviews" or one line.
+    const clientRatingMatch = bodyText.match(/(\d\.\d{1,2})[\s\S]{0,30}of\s+\d+\s*reviews?/i);
+    // "Proposals:" is followed by a newline then the value — allow whitespace
+    // Require plural "Proposals:" AND a recognizable count pattern.
+    // Avoids matching things like "Required for proposal: 11 Connects".
+    const proposalsMatch = bodyText.match(/Proposals:\s*(Less than \d+|\d+\s*to\s*\d+|\d+\+|Over \d+|\d+(?=\s|$))/i);
+    // Budget — fixed price or hourly range, typically shown on proposal page too
+    const budgetFixedMatch = bodyText.match(/\$([\d,]+(?:\.\d+)?)\s*(?:fixed[-\s]price|fixed budget)/i);
+    const budgetHourlyMatch = bodyText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)\s*\/\s*hr/i);
+
+    let clientTotalSpend = null;
+    if (totalSpendMatch) {
+      const num = parseFloat(totalSpendMatch[1].replace(/,/g, ''));
+      const mult = (totalSpendMatch[2] || '').toUpperCase();
+      clientTotalSpend = mult === 'M' ? num * 1_000_000 : mult === 'K' ? num * 1_000 : num;
+    }
+
+    let budget = null;
+    if (budgetHourlyMatch) {
+      budget = '$' + budgetHourlyMatch[1] + '-$' + budgetHourlyMatch[2] + '/hr';
+    } else if (budgetFixedMatch) {
+      budget = '$' + budgetFixedMatch[1];
+    }
+
+    return {
+      clientHireRate: hireRateMatch ? parseInt(hireRateMatch[1]) / 100 : null,
+      clientTotalSpend,
+      clientAvgHourly: avgHourlyMatch ? parseFloat(avgHourlyMatch[1]) : null,
+      clientRating: clientRatingMatch ? parseFloat(clientRatingMatch[1]) : null,
+      proposalsText: proposalsMatch ? proposalsMatch[1].trim() : null,
+      budgetFromPage: budget,
+    };
+  }
+
+  async function stashPendingApplication() {
+    if (!contextValid()) return;
+    const jobId = getJobIdFromUrl(window.location.href);
+    if (!jobId) return;
+    const form = scrapeProposalForm();
+    return new Promise(resolve => {
+      chrome.storage.local.set({
+        pendingApplication: {
+          jobId,
+          dateApplied: Date.now(),
+          ...form,
+        }
+      }, resolve);
+    });
+  }
+
+  function attachProposalSubmitHook() {
+    if (document.body.dataset.ujsSubmitHook === '1') return;
+    document.body.dataset.ujsSubmitHook = '1';
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button, [role="button"]');
+      if (!btn) return;
+      const text = (btn.textContent || '').trim();
+      // Match the proposal-submit button. Upwork's current label is
+      // "Send for N Connects"; older variants use "Submit proposal" / "Send proposal".
+      const isSubmit =
+        /^send\s+for\s+\d+\s+connects?\b/i.test(text) ||
+        /^(submit|send)\s+(a\s+)?proposal\b/i.test(text);
+      if (isSubmit) {
+        // Scrape NOW before navigation
+        stashPendingApplication();
+      }
+    }, true); // capture phase
+  }
+
+  // Capture the application as a "pending push" entry. The user reviews and
+  // pushes it to Notion manually from the popup — we do NOT auto-call Notion.
+  async function pushApplicationToNotion(jobId) {
+    if (!contextValid()) return;
+    const data = await new Promise(r => chrome.storage.local.get({
+      jobs: {}, pendingApplication: null, pendingPushes: {}
+    }, r));
+    if (data.pendingPushes[jobId]) return; // already captured
+
+    const job = data.jobs[jobId];
+    if (!job) return;
+
+    const pending = data.pendingApplication && data.pendingApplication.jobId === jobId
+      ? data.pendingApplication
+      : {};
+
+    // Re-scrape the CURRENT page (this fires on the confirmation page, where
+    // client info is freshly visible — the apply form doesn't show it).
+    const confSnap = scrapeClientInfoFromPage();
+
+    // Prefer fresh confirmation-page data, then form-page snapshot,
+    // then cached detail-page values.
+    const pick3 = (...vals) => {
+      for (const v of vals) {
+        if (v !== null && v !== undefined && v !== '') return v;
+      }
+      return null;
+    };
+
+    const payload = {
+      id: jobId,
+      url: job.url || window.location.href.split('?')[0],
+      title: job.title,
+      budget: pick3(confSnap.budgetFromPage, pending.budgetFromPage, job.budget),
+      skills: job.skills,
+      descriptionSnippet: job.descriptionSnippet,
+      proposalsText: pick3(confSnap.proposalsText, pending.proposalsText, job.proposalsText),
+      clientHireRate: pick3(confSnap.clientHireRate, pending.clientHireRate, job.clientHireRate),
+      clientTotalSpend: pick3(confSnap.clientTotalSpend, pending.clientTotalSpend, job.clientTotalSpend),
+      clientAvgHourly: pick3(confSnap.clientAvgHourly, pending.clientAvgHourly, job.clientAvgHourly),
+      clientRating: pick3(confSnap.clientRating, pending.clientRating, job.clientRating),
+      reviewScore: job.rating ? job.rating : null,
+      coverLetter: pending.coverLetter || '',
+      rateSubmitted: pending.rateSubmitted,
+      boostUsed: pending.boostUsed,
+      connectsSpent: pending.connectsSpent,
+      dateApplied: pending.dateApplied || Date.now(),
+    };
+
+    data.pendingPushes[jobId] = {
+      capturedAt: Date.now(),
+      notionStatus: 'pending',
+      notionPageUrl: null,
+      notionError: null,
+      pushedAt: null,
+      payload,
+    };
+
+    chrome.storage.local.set({ pendingPushes: data.pendingPushes });
+    chrome.storage.local.remove('pendingApplication');
   }
 
   // Watch for DOM changes that indicate a submission confirmation appeared
@@ -781,6 +1162,8 @@
       injectDetailButton();
       injectReviewOverlay();
       setTimeout(detectAppliedStatus, 1000);
+    } else if (pageType === 'proposal') {
+      attachProposalSubmitHook();
     }
     watchForApplicationConfirmation();
   }
