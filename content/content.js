@@ -42,6 +42,7 @@
     if (
       path.includes('/search/jobs') ||
       path.includes('/nx/search/jobs') ||
+      path.includes('/universal-search/jobs') ||
       path.startsWith('/nx/find-work') ||
       (path.startsWith('/ab/notifications') && /[?&]tab=job_alerts\b/.test(search))
     ) {
