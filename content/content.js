@@ -554,7 +554,7 @@
           bottom: 22px;
           right: 22px;
           width: 280px;
-          background: #FBF8F3;
+          background: #FFFFFF;
           border: 1px solid rgba(60, 50, 40, 0.10);
           border-radius: 14px;
           box-shadow: 0 4px 16px rgba(60, 50, 40, 0.10), 0 12px 32px rgba(60, 50, 40, 0.06);
@@ -577,7 +577,7 @@
           color: #7FA88E;
           font-size: 22px;
           opacity: 0.7;
-          background: #FBF8F3;
+          background: #FFFFFF;
           border: 1px solid rgba(127, 168, 142, 0.30);
           border-radius: 50%;
           width: 36px;
@@ -653,7 +653,7 @@
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
           font-family: inherit;
         }
-        .btn:hover { background: #F4EFE7; border-color: rgba(60, 50, 40, 0.18); }
+        .btn:hover { background: #F5F4F1; border-color: rgba(60, 50, 40, 0.18); }
         .btn-reject {
           color: #C97B7B;
           border-color: rgba(201, 123, 123, 0.30);

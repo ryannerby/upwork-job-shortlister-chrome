@@ -297,6 +297,8 @@
     { key: 'proposalsText',    label: 'Proposals at Apply', type: 'text', hint: 'Bucketed automatically on push' },
     { key: 'rateSubmitted',    label: 'Rate Submitted',     type: 'number', half: true },
     { key: 'connectsSpent',    label: 'Connects Spent',     type: 'number', half: true },
+    { key: 'proposalValue',    label: 'Proposal Value $',   type: 'number', half: true, hint: 'Total proposal $ if known' },
+    { key: 'earningsAfterFees',label: 'Earnings After Fees & Tax $', type: 'number', half: true, hint: 'Fill in post-payout' },
     { key: 'boostUsed',        label: 'Boost Used',         type: 'checkbox' },
     { key: 'reviewScore',      label: 'Review Score',       type: 'number', half: true },
     { key: 'budget',           label: 'Budget',             type: 'text',   half: true },

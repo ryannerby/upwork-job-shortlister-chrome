@@ -5,9 +5,9 @@
 
 :root {
   /* Warm neutrals */
-  --bg:         #FBF8F3;
+  --bg:         #FFFFFF;
   --surface:    #FFFFFF;
-  --surface-2:  #F4EFE7;
+  --surface-2:  #F5F4F1;
   --hover:      rgba(60, 50, 40, 0.05);
   --pressed:    rgba(60, 50, 40, 0.09);
 

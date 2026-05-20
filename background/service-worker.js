@@ -143,6 +143,8 @@ function buildNotionProperties(job) {
   if (typeof job.clientAvgHourly === 'number') props['Client Avg Hourly']  = { number: job.clientAvgHourly };
   if (typeof job.connectsSpent === 'number')   props['Connects Spent']     = { number: job.connectsSpent };
   if (typeof job.reviewScore === 'number')     props['Review Score']       = { number: job.reviewScore };
+  if (typeof job.proposalValue === 'number')   props['Proposal Value']     = { number: job.proposalValue };
+  if (typeof job.earningsAfterFees === 'number') props['earnings after Upwork fees & taxes'] = { number: job.earningsAfterFees };
 
   const tagSources = [job.title, job.descriptionSnippet, (job.skills || []).join(' ')].filter(Boolean).join(' ');
   const tags = detectTags(tagSources);
