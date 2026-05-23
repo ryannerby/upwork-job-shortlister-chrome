@@ -67,13 +67,21 @@ function getNotionConfig() {
 
 function bucketProposalCount(text) {
   if (!text) return null;
-  // "Proposals: 5 to 10" / "Less than 5" / "10 to 15" / "20 to 50" / "50+"
-  const t = text.toLowerCase();
-  if (t.includes('less than 5') || /\b[0-4]\b/.test(t.match(/\d+/g)?.[0] || '')) return '<5';
-  if (/\b50\+|\b50 to \d{2,}/.test(t)) return '50+';
+  const t = text.toLowerCase().trim();
+  // Only accept text that's PURELY a count pattern — rejects free-form
+  // text accidentally captured by old/loose regex (e.g. screening questions)
+  const isPureCount =
+    /^less than \d+$/.test(t) ||
+    /^over \d+$/.test(t) ||
+    /^\d+\s*to\s*\d+$/.test(t) ||
+    /^\d+\+?$/.test(t);
+  if (!isPureCount) return null;
+
+  if (t.startsWith('less than 5')) return '<5';
+  if (/^50\+|^50 to \d{2,}/.test(t)) return '50+';
   const nums = (t.match(/\d+/g) || []).map(Number);
   const max = Math.max(...nums, 0);
-  if (max < 5)  return '<5';
+  if (max < 5)   return '<5';
   if (max <= 15) return '5-15';
   if (max <= 50) return '15-50';
   return '50+';

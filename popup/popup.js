@@ -294,7 +294,7 @@
     { key: 'title',            label: 'Job Title',          type: 'text'     },
     { key: 'url',              label: 'Job URL',            type: 'text'     },
     { key: 'dateApplied',      label: 'Date Applied',       type: 'date'     },
-    { key: 'proposalsText',    label: 'Proposals at Apply', type: 'text', hint: 'Bucketed automatically on push' },
+    { key: 'proposalsText',    label: 'Proposals at Apply', type: 'select', options: ['', 'Less than 5', '5 to 10', '10 to 15', '15 to 20', '20 to 50', '50+'], hint: 'Picks a bucket on push' },
     { key: 'rateSubmitted',    label: 'Rate Submitted',     type: 'number', half: true },
     { key: 'connectsSpent',    label: 'Connects Spent',     type: 'number', half: true },
     { key: 'proposalValue',    label: 'Proposal Value $',   type: 'number', half: true, hint: 'Total proposal $ if known' },
@@ -340,6 +340,18 @@
       cb.style.width = '18px';
       cb.style.height = '18px';
       wrap.appendChild(cb);
+    } else if (def.type === 'select') {
+      const sel = document.createElement('select');
+      sel.className = 'detail-field-input';
+      sel.dataset.key = def.key;
+      (def.options || []).forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent = opt || '— none —';
+        if ((value ?? '') === opt) o.selected = true;
+        sel.appendChild(o);
+      });
+      wrap.appendChild(sel);
     } else {
       const input = document.createElement('input');
       input.className = 'detail-field-input';
