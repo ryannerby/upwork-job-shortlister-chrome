@@ -983,6 +983,43 @@
       budget = '$' + budgetFixedMatch[1];
     }
 
+    // ---- Confirmation-page-only signals (won't match on detail/apply pages) ----
+
+    // Fixed-price total: "Total price of project ... $1,497.95"
+    const totalPriceMatch = bodyText.match(/Total\s+price\s+of\s+project[\s\S]{0,200}?\$([\d,]+(?:\.\d{1,2})?)/i);
+    // Hourly rate: "Your bid ... $X/hr"
+    const hourlyBidMatch = bodyText.match(/Your\s+(?:bid|hourly\s+rate)[\s\S]{0,80}?\$([\d.]+)\s*\/\s*hr/i);
+    // Net earnings: "You'll receive ... after service fees ... $1,273.26"
+    const earningsMatch = bodyText.match(/You'?ll\s+receive[\s\S]{0,200}?\$([\d,]+(?:\.\d{1,2})?)/i);
+    // Boost: "Boosted proposal" heading + "Your bid is set to N Connects"
+    const boostedMatch = bodyText.match(/Boosted\s+proposal[\s\S]{0,200}?Your\s+bid\s+is\s+set\s+to\s+(\d+)\s+Connects?/i);
+
+    const rateFromConfirmation =
+      hourlyBidMatch ? parseFloat(hourlyBidMatch[1]) :
+      totalPriceMatch ? parseFloat(totalPriceMatch[1].replace(/,/g, '')) :
+      null;
+    const proposalValueFromConfirmation = totalPriceMatch
+      ? parseFloat(totalPriceMatch[1].replace(/,/g, ''))
+      : null;
+    const earningsAfterFeesFromConfirmation = earningsMatch
+      ? parseFloat(earningsMatch[1].replace(/,/g, ''))
+      : null;
+
+    let boostUsedFromConfirmation = null;
+    let boostAmountFromConfirmation = null;
+    if (boostedMatch) {
+      boostUsedFromConfirmation = true;
+      boostAmountFromConfirmation = parseInt(boostedMatch[1]);
+    } else if (/Your\s+proposal\s+(?:was\s+|is\s+)?(?:not\s+)?boosted/i.test(bodyText)
+            || /Not\s+boosted/i.test(bodyText)) {
+      // Explicit "not boosted" signal — only set false if we have negative evidence
+      boostUsedFromConfirmation = false;
+    }
+
+    // Job description from confirmation page — Upwork shows it under "Job details"
+    const descEl = document.querySelector('[data-test="Description"], [data-test="JobDescription"], .job-description, [class*="description" i]');
+    const descriptionFromPage = descEl ? descEl.textContent.trim().substring(0, 2000) : null;
+
     return {
       clientHireRate: hireRateMatch ? parseInt(hireRateMatch[1]) / 100 : null,
       clientTotalSpend,
@@ -990,6 +1027,12 @@
       clientRating: clientRatingMatch ? parseFloat(clientRatingMatch[1]) : null,
       proposalsText: proposalsMatch ? proposalsMatch[1].trim() : null,
       budgetFromPage: budget,
+      rateFromConfirmation,
+      proposalValueFromConfirmation,
+      earningsAfterFeesFromConfirmation,
+      boostUsedFromConfirmation,
+      boostAmountFromConfirmation,
+      descriptionFromPage,
     };
   }
 
@@ -1064,7 +1107,7 @@
       title: job.title,
       budget: pick3(confSnap.budgetFromPage, pending.budgetFromPage, job.budget),
       skills: job.skills,
-      descriptionSnippet: job.descriptionSnippet,
+      descriptionSnippet: pick3(confSnap.descriptionFromPage, job.descriptionSnippet, pending.descriptionFromPage),
       proposalsText: pick3(confSnap.proposalsText, pending.proposalsText, job.proposalsText),
       clientHireRate: pick3(confSnap.clientHireRate, pending.clientHireRate, job.clientHireRate),
       clientTotalSpend: pick3(confSnap.clientTotalSpend, pending.clientTotalSpend, job.clientTotalSpend),
@@ -1072,9 +1115,18 @@
       clientRating: pick3(confSnap.clientRating, pending.clientRating, job.clientRating),
       reviewScore: job.rating ? job.rating : null,
       coverLetter: pending.coverLetter || '',
-      rateSubmitted: pending.rateSubmitted,
-      boostUsed: pending.boostUsed,
+      // Rate Submitted: confirmation page is the source of truth — apply-form
+      // scrape often grabbed the boost connects number instead of the real bid.
+      rateSubmitted: pick3(confSnap.rateFromConfirmation, pending.rateSubmitted),
+      // Boost: confirmation page text is unambiguous ("Boosted proposal" / "Your bid is set to N Connects")
+      boostUsed: confSnap.boostUsedFromConfirmation !== null
+        ? confSnap.boostUsedFromConfirmation
+        : pending.boostUsed,
+      // connectsSpent comes from the "Send for N Connects" submit button — the
+      // total cost (base + boost). Don't conflate with boost amount alone.
       connectsSpent: pending.connectsSpent,
+      proposalValue: confSnap.proposalValueFromConfirmation,
+      earningsAfterFees: confSnap.earningsAfterFeesFromConfirmation,
       dateApplied: pending.dateApplied || Date.now(),
     };
 
