@@ -1006,8 +1006,15 @@
 
     // Fixed-price total: "Total price of project ... $1,497.95"
     const totalPriceMatch = bodyText.match(/Total\s+price\s+of\s+project[\s\S]{0,200}?\$([\d,]+(?:\.\d{1,2})?)/i);
-    // Hourly rate: "Your bid ... $X/hr"
-    const hourlyBidMatch = bodyText.match(/Your\s+(?:bid|hourly\s+rate)[\s\S]{0,80}?\$([\d.]+)\s*\/\s*hr/i);
+    // Hourly rate — multiple anchors Upwork uses:
+    //   "Hourly rate ... $34.95/hr"   (most common on confirmation)
+    //   "Your bid ... $X/hr"          (older variant)
+    //   "Your hourly rate ... $X/hr"
+    // Last-resort fallback: the FIRST $X/hr on the page (gross rate is shown
+    // before the "You'll receive after fees" section).
+    const hourlyBidMatch =
+      bodyText.match(/(?:Hourly\s+rate|Your\s+(?:bid|hourly\s+rate))[\s\S]{0,200}?\$([\d.]+)\s*\/\s*hr/i) ||
+      bodyText.match(/\$([\d.]+)\s*\/\s*hr/i);
     // Net earnings: "You'll receive ... after service fees ... $1,273.26"
     const earningsMatch = bodyText.match(/You'?ll\s+receive[\s\S]{0,200}?\$([\d,]+(?:\.\d{1,2})?)/i);
     // Boost: "Boosted proposal" heading + "Your bid is set to N Connects"
