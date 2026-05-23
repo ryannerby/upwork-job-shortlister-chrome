@@ -536,8 +536,15 @@
     if (!jobId) return;
 
     const jobs = await getJobs();
-    const job = jobs[jobId];
-    if (!job) return; // Only show overlay for shortlisted jobs
+    // If not yet shortlisted, build a stub from the current page so the
+    // overlay can still render. Star/reject clicks below will save it
+    // (auto-shortlist + apply rating in one tap).
+    const job = jobs[jobId] || {
+      id: jobId,
+      url: window.location.href.split('?')[0],
+      status: null,
+      rating: null,
+    };
 
     const host = document.createElement('div');
     host.className = 'ujs-review-host';
@@ -751,12 +758,26 @@
     renderState(job);
 
     // Star click
+    // Build (or fetch) the job to save. If user hasn't shortlisted yet,
+    // scrape the detail page so we capture the title/budget/skills/etc.
+    async function getOrCreateJob() {
+      const jobs = await getJobs();
+      if (jobs[jobId]) return jobs[jobId];
+      const scraped = scrapeDetailPage();
+      return {
+        id: jobId,
+        url: window.location.href.split('?')[0],
+        ...scraped,
+        shortlistedAt: Date.now(),
+        status: 'shortlisted',
+        rating: null,
+      };
+    }
+
     stars.forEach(starBtn => {
       starBtn.addEventListener('click', async () => {
         const rating = parseInt(starBtn.dataset.rating);
-        const jobs = await getJobs();
-        const current = jobs[jobId];
-        if (!current) return;
+        const current = await getOrCreateJob();
         current.rating = rating;
         current.status = 'rated';
         await saveJob(current);
@@ -766,9 +787,7 @@
 
     // Reject click
     rejectBtn.addEventListener('click', async () => {
-      const jobs = await getJobs();
-      const current = jobs[jobId];
-      if (!current) return;
+      const current = await getOrCreateJob();
       if (current.status === 'rejected') return;
       current.status = 'rejected';
       await saveJob(current);
