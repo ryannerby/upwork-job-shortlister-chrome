@@ -404,26 +404,6 @@ body {
   color: var(--sage-strong);
 }
 
-.row-score {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 10px;
-  font-size: 10.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  border: 1px solid;
-}
-
-.row-score.high { background: var(--sage-tint);  color: var(--sage-strong); border-color: var(--sage-soft); }
-.row-score.mid  { background: var(--amber-tint); color: var(--amber);       border-color: rgba(201, 148, 89, 0.4); }
-.row-score.low  { background: rgba(120,110,100,0.08); color: var(--ink-mute); border-color: var(--border); }
-
 .job-remove {
   flex-shrink: 0;
   width: 22px;

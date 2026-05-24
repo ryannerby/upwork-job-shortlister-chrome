@@ -182,7 +182,6 @@
     // Match the rating that precedes "of N reviews" (e.g. "5.00 of 29 reviews")
     // — works whether the page shows "5.0\n5.00 of 29 reviews" or one line.
     const clientRatingMatch = bodyText.match(/(\d\.\d{1,2})[\s\S]{0,30}of\s+\d+\s*reviews?/i);
-    const reviewCountMatch = bodyText.match(/of\s+(\d+)\s+reviews?/i);
 
     // Normalize spend with K/M multiplier
     let clientTotalSpend = null;
@@ -206,7 +205,6 @@
       clientTotalSpend,
       clientAvgHourly: avgHourlyMatch ? parseFloat(avgHourlyMatch[1]) : null,
       clientRating: clientRatingMatch ? parseFloat(clientRatingMatch[1]) : null,
-      clientReviews: reviewCountMatch ? parseInt(reviewCountMatch[1]) : null,
     };
   }
 
@@ -226,19 +224,6 @@
     const id = href ? getJobIdFromUrl(href) : null;
     const url = href ? href.split('?')[0] : null;
 
-    // Extra signals visible directly on search cards (good for scoring even
-    // before user visits the detail page)
-    const cardText = card.textContent || '';
-    const spendMatch = cardText.match(/\$([\d.,]+)\s*([KMkm])?\+?\s+(?:total\s+)?spent/i);
-    let clientTotalSpend = null;
-    if (spendMatch) {
-      const num = parseFloat(spendMatch[1].replace(/,/g, ''));
-      const mult = (spendMatch[2] || '').toUpperCase();
-      clientTotalSpend = mult === 'M' ? num * 1e6 : mult === 'K' ? num * 1e3 : num;
-    }
-    const proposalsCardMatch = cardText.match(/Proposals?:\s*(Less than \d+|Fewer than \d+|\d+\s*to\s*\d+|\d+\+|Over \d+)/i);
-    const proposalsText = proposalsCardMatch ? proposalsCardMatch[1].trim() : null;
-
     return {
       id,
       url,
@@ -250,111 +235,7 @@
       postedTimestamp: parsePostedDate(postedDate),
       skills,
       descriptionSnippet,
-      clientTotalSpend,
-      proposalsText,
     };
-  }
-
-  // ----------------------------------------------------------
-  // Scoring — rule-based ranking out of 100. Missing signals
-  // contribute 0 (not penalized but can't earn). Used to render
-  // a colored chip on each card.
-  // ----------------------------------------------------------
-  function computeScore(job) {
-    if (!job) return { score: 0, breakdown: {} };
-    const b = {};
-
-    // Proposals already submitted (20 pts — biggest signal)
-    const p = (job.proposalsText || '').toLowerCase();
-    if (/less than 5|fewer than 5|<\s*5/.test(p))       b.proposals = 20;
-    else if (/^5\s*to\s*1[05]|^5-1[05]/.test(p))         b.proposals = 15;
-    else if (/1[05]\s*to\s*50|^1[05]-50/.test(p))        b.proposals = 8;
-    else if (/50\+/.test(p))                             b.proposals = 0;
-
-    // Recency (15 pts)
-    if (job.postedTimestamp) {
-      const ageMin = (Date.now() - job.postedTimestamp) / 60000;
-      if (ageMin < 15)      b.recency = 15;
-      else if (ageMin < 60) b.recency = 12;
-      else if (ageMin < 360) b.recency = 8;
-      else if (ageMin < 1440) b.recency = 5;
-      else if (ageMin < 4320) b.recency = 2;
-      else                  b.recency = 0;
-    }
-
-    // Client total spend (15 pts, log scale)
-    if (typeof job.clientTotalSpend === 'number') {
-      const s = job.clientTotalSpend;
-      if (s >= 100000)    b.spend = 15;
-      else if (s >= 50000) b.spend = 13;
-      else if (s >= 10000) b.spend = 10;
-      else if (s >= 1000)  b.spend = 6;
-      else if (s >= 100)   b.spend = 3;
-      else                 b.spend = 0;
-    }
-
-    // Budget tier (10 pts)
-    const budgetText = (job.budget || '').toLowerCase();
-    const hourly = budgetText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)\s*\/\s*hr/);
-    const fixed = !hourly && budgetText.match(/\$([\d,]+(?:\.\d+)?)/);
-    if (hourly) {
-      const max = parseFloat(hourly[2]);
-      if (max >= 50)      b.budget = 10;
-      else if (max >= 30) b.budget = 7;
-      else if (max >= 20) b.budget = 4;
-      else                b.budget = 2;
-    } else if (fixed) {
-      const v = parseFloat(fixed[1].replace(/,/g, ''));
-      if (v >= 5000)      b.budget = 10;
-      else if (v >= 1000) b.budget = 7;
-      else if (v >= 500)  b.budget = 4;
-      else if (v >= 100)  b.budget = 2;
-      else                b.budget = 0;
-    }
-
-    // Hire rate (10 pts) — clientHireRate is 0..1
-    if (typeof job.clientHireRate === 'number') {
-      b.hireRate = Math.round(job.clientHireRate * 10);
-    }
-
-    // Client rating (10 pts)
-    if (typeof job.clientRating === 'number') {
-      const r = job.clientRating;
-      if (r >= 5.0)      b.rating = 10;
-      else if (r >= 4.8) b.rating = 8;
-      else if (r >= 4.5) b.rating = 5;
-      else if (r >= 4.0) b.rating = 2;
-      else               b.rating = 0;
-    }
-
-    // LTV signal (10 pts)
-    const desc = (job.descriptionSnippet || '').toLowerCase();
-    if (/\b(ongoing|long[-\s]term|weekly|monthly|continuous|recurring|retainer|part[-\s]time)\b/.test(desc)) {
-      b.ltv = 10;
-    } else {
-      b.ltv = 0;
-    }
-
-    // Description specificity (5 pts)
-    if (desc) {
-      let pts = 0;
-      if (desc.length > 500)      pts += 3;
-      else if (desc.length > 200) pts += 2;
-      if (/[•\-*]\s|\d\.\s/.test(desc)) pts += 2; // bullets or numbered list
-      b.specificity = Math.min(5, pts);
-    }
-
-    // Reviews count (5 pts) — only present after a detail-page visit
-    if (typeof job.clientReviews === 'number') {
-      const n = job.clientReviews;
-      if (n >= 50)      b.reviews = 5;
-      else if (n >= 20) b.reviews = 4;
-      else if (n >= 5)  b.reviews = 2;
-      else              b.reviews = 1;
-    }
-
-    const total = Object.values(b).reduce((sum, v) => sum + (v || 0), 0);
-    return { score: Math.round(total), breakdown: b };
   }
 
   // ----------------------------------------------------------
@@ -531,18 +412,13 @@
       const existingJob = jobs[jobData.id] || null;
       const wrap = createSearchButtons(jobData, existingJob);
 
-      // Score chip — computed from whatever signals are visible on this card.
-      // Merges in any cached signals from a previous detail-page visit.
-      const merged = { ...(existingJob || {}), ...jobData };
-      const { score } = computeScore(merged);
-      const chip = createScoreChip(score);
-      wrap.insertBefore(chip, wrap.firstChild);
-
       // Try to inject inline with Upwork's native action buttons
       // (heart / dislike / save). Fall back to absolute corner.
       const nativeAction = findNativeActionAnchor(card);
       if (nativeAction) {
         wrap.classList.add('ujs-btn-group-inline');
+        // Walk up to the shared parent that contains ALL native action buttons,
+        // then prepend so our pair sits at the leftmost edge of the toolbar.
         const group = findActionGroupContainer(nativeAction, card);
         group.insertBefore(wrap, group.firstChild);
       } else {
@@ -550,18 +426,6 @@
         card.appendChild(wrap);
       }
     });
-  }
-
-  // Colored score chip — green ≥70, amber 40–69, gray <40
-  function createScoreChip(score) {
-    const chip = document.createElement('span');
-    chip.className = 'ujs-score-chip';
-    chip.textContent = score;
-    chip.title = 'Job score (' + score + '/100). Hover stars for breakdown.';
-    if (score >= 70)      chip.classList.add('ujs-score-high');
-    else if (score >= 40) chip.classList.add('ujs-score-mid');
-    else                  chip.classList.add('ujs-score-low');
-    return chip;
   }
 
   // Locate the LEFTMOST of Upwork's native action buttons (heart/dislike/save)

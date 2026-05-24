@@ -40,50 +40,6 @@
 }
 
 /* ----------------------------------------------------------
-   Score chip — sits at left of the button group
-   ---------------------------------------------------------- */
-.ujs-score-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--ujs-font);
-  letter-spacing: 0.02em;
-  border: 1px solid;
-  align-self: center;
-}
-
-.ujs-score-high {
-  background: rgba(127, 168, 142, 0.22);
-  border-color: rgba(127, 168, 142, 0.60);
-  color: #4F7860;
-}
-
-.ujs-score-mid {
-  background: rgba(201, 148, 89, 0.18);
-  border-color: rgba(201, 148, 89, 0.50);
-  color: #9A6F35;
-}
-
-.ujs-score-low {
-  background: rgba(120, 110, 100, 0.16);
-  border-color: rgba(120, 110, 100, 0.40);
-  color: #6B6660;
-}
-
-/* On dark Upwork pages, lighten text */
-@media (prefers-color-scheme: dark) {
-  .ujs-score-high { color: #B3CCBE; }
-  .ujs-score-mid  { color: #D9B380; }
-  .ujs-score-low  { color: #C9C4BE; }
-}
-
-/* ----------------------------------------------------------
    Button group — same size + visual weight as Upwork's
    native action buttons. Consistent across all pages.
    ---------------------------------------------------------- */

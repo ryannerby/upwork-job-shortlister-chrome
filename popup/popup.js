@@ -113,79 +113,6 @@
     return s;
   }
 
-  // Mirror of computeScore() in content.js — kept in sync there.
-  function computeScore(job) {
-    if (!job) return 0;
-    const b = {};
-    const p = (job.proposalsText || '').toLowerCase();
-    if (/less than 5|fewer than 5|<\s*5/.test(p))   b.proposals = 20;
-    else if (/^5\s*to\s*1[05]|^5-1[05]/.test(p))     b.proposals = 15;
-    else if (/1[05]\s*to\s*50|^1[05]-50/.test(p))    b.proposals = 8;
-    else if (/50\+/.test(p))                         b.proposals = 0;
-    if (job.postedTimestamp) {
-      const ageMin = (Date.now() - job.postedTimestamp) / 60000;
-      if (ageMin < 15)      b.recency = 15;
-      else if (ageMin < 60) b.recency = 12;
-      else if (ageMin < 360) b.recency = 8;
-      else if (ageMin < 1440) b.recency = 5;
-      else if (ageMin < 4320) b.recency = 2;
-      else                  b.recency = 0;
-    }
-    if (typeof job.clientTotalSpend === 'number') {
-      const s = job.clientTotalSpend;
-      if (s >= 100000)    b.spend = 15;
-      else if (s >= 50000) b.spend = 13;
-      else if (s >= 10000) b.spend = 10;
-      else if (s >= 1000)  b.spend = 6;
-      else if (s >= 100)   b.spend = 3;
-      else                 b.spend = 0;
-    }
-    const budgetText = (job.budget || '').toLowerCase();
-    const hourly = budgetText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)\s*\/\s*hr/);
-    const fixed = !hourly && budgetText.match(/\$([\d,]+(?:\.\d+)?)/);
-    if (hourly) {
-      const max = parseFloat(hourly[2]);
-      if (max >= 50)      b.budget = 10;
-      else if (max >= 30) b.budget = 7;
-      else if (max >= 20) b.budget = 4;
-      else                b.budget = 2;
-    } else if (fixed) {
-      const v = parseFloat(fixed[1].replace(/,/g, ''));
-      if (v >= 5000)      b.budget = 10;
-      else if (v >= 1000) b.budget = 7;
-      else if (v >= 500)  b.budget = 4;
-      else if (v >= 100)  b.budget = 2;
-      else                b.budget = 0;
-    }
-    if (typeof job.clientHireRate === 'number')   b.hireRate = Math.round(job.clientHireRate * 10);
-    if (typeof job.clientRating === 'number') {
-      const r = job.clientRating;
-      if (r >= 5.0)      b.rating = 10;
-      else if (r >= 4.8) b.rating = 8;
-      else if (r >= 4.5) b.rating = 5;
-      else if (r >= 4.0) b.rating = 2;
-      else               b.rating = 0;
-    }
-    const desc = (job.descriptionSnippet || '').toLowerCase();
-    if (/\b(ongoing|long[-\s]term|weekly|monthly|continuous|recurring|retainer|part[-\s]time)\b/.test(desc)) b.ltv = 10;
-    else b.ltv = 0;
-    if (desc) {
-      let pts = 0;
-      if (desc.length > 500)      pts += 3;
-      else if (desc.length > 200) pts += 2;
-      if (/[•\-*]\s|\d\.\s/.test(desc)) pts += 2;
-      b.specificity = Math.min(5, pts);
-    }
-    if (typeof job.clientReviews === 'number') {
-      const n = job.clientReviews;
-      if (n >= 50)      b.reviews = 5;
-      else if (n >= 20) b.reviews = 4;
-      else if (n >= 5)  b.reviews = 2;
-      else              b.reviews = 1;
-    }
-    return Math.round(Object.values(b).reduce((s, v) => s + (v || 0), 0));
-  }
-
   function toast(msg, kind) {
     els.toast.textContent = msg;
     els.toast.className = 'toast show' + (kind ? ' ' + kind : '');
@@ -200,11 +127,6 @@
       if (a.status === 'rejected' && b.status !== 'rejected') return 1;
       if (b.status === 'rejected' && a.status !== 'rejected') return -1;
       switch (by) {
-        case 'score': {
-          const sA = computeScore(a), sB = computeScore(b);
-          if (sB !== sA) return sB - sA;
-          return (b.shortlistedAt || 0) - (a.shortlistedAt || 0);
-        }
         case 'rating': {
           const rA = a.rating || 0, rB = b.rating || 0;
           if (rB !== rA) return rB - rA;
@@ -251,9 +173,6 @@
     const stars = job.rating ? `<span class="job-rating">${renderStars(job.rating)}</span>` : '';
     const budget = job.budget ? `<span class="job-budget">${escapeHtml(job.budget)}</span>` : '';
     const badge = showBadge ? `<span class="job-badge ${status}">${status}</span>` : '';
-    const scoreVal = computeScore(job);
-    const scoreCls = scoreVal >= 70 ? 'high' : scoreVal >= 40 ? 'mid' : 'low';
-    const scoreChip = `<span class="row-score ${scoreCls}" title="Auto score ${scoreVal}/100">${scoreVal}</span>`;
 
     // Notion push state
     let pushAction = '';
@@ -271,7 +190,6 @@
     row.innerHTML = `
       <div class="job-row-top">
         <a class="job-title" href="${escapeHtml(job.url || '#')}" target="_blank" rel="noopener">${escapeHtml(job.title || 'Untitled')}</a>
-        ${scoreChip}
         <button class="job-remove" data-id="${escapeHtml(job.id)}" title="Remove">×</button>
       </div>
       <div class="job-meta">
@@ -750,7 +668,7 @@
   (async function init() {
     const settings = await storage.getSettings();
     state.filter = settings.filter || 'all';
-    state.sortBy = settings.sortBy || 'score';
+    state.sortBy = settings.sortBy || 'rating';
     els.sortBy.value = state.sortBy;
 
     // Sweep orphaned pending entries (job removed but pending lingered)
