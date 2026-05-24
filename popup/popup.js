@@ -594,17 +594,47 @@
     chrome.runtime.sendMessage({ action: 'openTabs', urls });
   });
 
+  // Map filter → labels used in the confirm modal + toast
+  const FILTER_LABELS = {
+    all:      { name: 'shortlist',  toast: 'Shortlist cleared' },
+    pending:  { name: 'Notion queue', toast: 'Notion queue cleared' },
+    unrated:  { name: 'unrated',    toast: 'Unrated jobs cleared' },
+    rated:    { name: 'rated',      toast: 'Rated jobs cleared' },
+    applied:  { name: 'applied',    toast: 'Applied jobs cleared' },
+    rejected: { name: 'rejected',   toast: 'Rejected jobs cleared' },
+  };
+
   els.clearBtn.addEventListener('click', () => {
+    const label = FILTER_LABELS[state.filter] || FILTER_LABELS.all;
+    const count = (state.openableUrls || []).length;
+    // For 'all' / 'pending' / 'rejected' we still need to recount visible jobs
+    // (openableUrls excludes rejected, so it's wrong for 'rejected' / 'all-incl-rejected')
+    const visibleCount = els.jobList.querySelectorAll('.job-row').length;
+    if (state.filter === 'all') {
+      els.clearTitle.textContent = 'Clear entire shortlist?';
+      els.clearSub.textContent = `This will remove all ${visibleCount} job${visibleCount === 1 ? '' : 's'}. Cannot be undone.`;
+    } else {
+      els.clearTitle.textContent = `Clear ${visibleCount} ${label.name} job${visibleCount === 1 ? '' : 's'}?`;
+      els.clearSub.textContent = `Other tabs are untouched. Cannot be undone.`;
+    }
     els.clearConfirm.style.display = 'flex';
   });
   els.clearNo.addEventListener('click', () => {
     els.clearConfirm.style.display = 'none';
   });
   els.clearYes.addEventListener('click', async () => {
-    await storage.clearJobs();
+    if (state.filter === 'all') {
+      await storage.clearJobs();
+    } else {
+      // Remove only the IDs currently visible in the filtered list
+      const visibleIds = [...els.jobList.querySelectorAll('.job-row .job-remove[data-id]')]
+        .map(b => b.dataset.id);
+      for (const id of visibleIds) await storage.removeJob(id);
+    }
     els.clearConfirm.style.display = 'none';
     render();
-    toast('Shortlist cleared');
+    const label = FILTER_LABELS[state.filter] || FILTER_LABELS.all;
+    toast(label.toast);
   });
 
   els.testNotion.addEventListener('click', testNotion);
