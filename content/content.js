@@ -986,7 +986,12 @@
     const proposalsMatch = bodyText.match(/Proposals:\s*(Less than \d+|\d+\s*to\s*\d+|\d+\+|Over \d+|\d+(?=\s|$))/i);
     // Budget — fixed price or hourly range, typically shown on proposal page too
     const budgetFixedMatch = bodyText.match(/\$([\d,]+(?:\.\d+)?)\s*(?:fixed[-\s]price|fixed budget)/i);
-    const budgetHourlyMatch = bodyText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)\s*\/\s*hr/i);
+    // Hourly range — Upwork uses two formats:
+    //   "$25 - $65 /hr"            (older)
+    //   "$25.00 - $65.00 ... Hourly range"  (current confirmation page)
+    const budgetHourlyMatch =
+      bodyText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)\s*\/\s*hr/i) ||
+      bodyText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)[\s\S]{0,60}Hourly\s+range/i);
 
     let clientTotalSpend = null;
     if (totalSpendMatch) {
