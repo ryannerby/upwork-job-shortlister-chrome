@@ -30,6 +30,8 @@
     openAllBtn: $('openAllBtn'),
     clearBtn: $('clearBtn'),
     clearConfirm: $('clearConfirm'),
+    clearTitle: $('clearTitle'),
+    clearSub: $('clearSub'),
     clearYes: $('clearYes'),
     clearNo: $('clearNo'),
 
