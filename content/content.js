@@ -163,16 +163,27 @@
     const budget = safeTextMulti(document, s.budget);
     const budgetTypeText = safeTextMulti(document, s.budgetType);
     const clientCountry = safeTextMulti(document, s.clientCountry);
-    const postedDate = safeTextMulti(document, s.postedDate);
+    let postedDate = safeTextMulti(document, s.postedDate);
     const skills = safeListText(document, s.skills);
     const descEl = document.querySelector(s.description.split(',')[0]) ||
                    document.querySelector(s.description.split(',')[1]) ||
                    document.querySelector(s.description.split(',')[2]);
-    const fullDesc = descEl ? descEl.textContent.trim() : '';
-    const descriptionSnippet = fullDesc.substring(0, 200);
+    let fullDesc = descEl ? descEl.textContent.trim() : '';
+    let descriptionSnippet = fullDesc.substring(0, 200);
 
     // Best-effort heuristic scrapes for Notion sync — silently null on miss
     const bodyText = document.body.innerText || '';
+
+    // Resilience fallbacks for stale selectors:
+    if (!postedDate) {
+      const m = bodyText.match(/Posted\s+([^\n•]{1,40})/i);
+      if (m) postedDate = m[1].trim();
+    }
+    if (!descriptionSnippet) {
+      // Pull text from a "Summary"/"Job description" heading down to next major heading
+      const m = bodyText.match(/(?:Summary|Job description|Project details)[\s:]*\n([\s\S]{50,2000}?)(?:\n\s*(?:Skills|Project Type|Activity|About|Less than|More than)|$)/i);
+      if (m) descriptionSnippet = m[1].trim().substring(0, 500);
+    }
     const proposalsMatch = bodyText.match(/Proposals?:\s*([^\n]{1,40})/i);
     const proposalsText = proposalsMatch ? proposalsMatch[1].trim() : null;
     const hireRateMatch = bodyText.match(/(\d{1,3})\s*%\s*(?:hire rate|job success)/i);
@@ -597,6 +608,41 @@
   }
 
   // ----------------------------------------------------------
+  // Algo score badge — inline next to the job title at the top
+  // of the detail page. No mouse travel to the corner.
+  // ----------------------------------------------------------
+  function injectAlgoScoreBadge() {
+    if (document.querySelector('.ujs-algo-badge')) return;
+    const titleEl = document.querySelector('[data-test="job-title"], h3.job-header-title, h1.job-title, h4.m-0');
+    if (!titleEl) return;
+
+    let fresh;
+    try { fresh = scrapeDetailPage(); } catch (e) { return; }
+
+    const { score, breakdown, missing } = computeJobScore(fresh);
+    const tier = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
+
+    const badge = document.createElement('div');
+    badge.className = 'ujs-algo-badge ujs-algo-' + tier;
+    badge.innerHTML = `
+      <span class="ujs-algo-label">Algo score</span>
+      <span class="ujs-algo-value">${score}</span>
+      <span class="ujs-algo-total">/100</span>
+    `;
+
+    const lines = [
+      'Algo score: ' + score + '/100',
+      '',
+      ...Object.entries(breakdown).map(([k, v]) => `  ${k}: ${v}`),
+    ];
+    if (missing.length) lines.push('', 'Missing signals: ' + missing.join(', '));
+    badge.title = lines.join('\n');
+
+    // Inject as a sibling right after the title heading
+    titleEl.parentElement.insertBefore(badge, titleEl.nextSibling);
+  }
+
+  // ----------------------------------------------------------
   // Shortlist button on JOB DETAIL page
   // ----------------------------------------------------------
   async function injectDetailButton() {
@@ -737,39 +783,6 @@
         .overlay-body {
           padding: 16px;
         }
-        .algo-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 8px 12px;
-          margin-bottom: 14px;
-          border-radius: 10px;
-          background: rgba(60, 50, 40, 0.03);
-          border: 1px solid rgba(60, 50, 40, 0.08);
-        }
-        .algo-label {
-          font-size: 11.5px;
-          font-weight: 500;
-          color: #8A857F;
-          letter-spacing: 0.01em;
-        }
-        .algo-chip {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 40px;
-          height: 24px;
-          padding: 0 9px;
-          border-radius: 12px;
-          font-size: 12.5px;
-          font-weight: 600;
-          font-variant-numeric: tabular-nums;
-          border: 1px solid;
-          cursor: help;
-        }
-        .algo-chip.high { background: rgba(127, 168, 142, 0.20); border-color: rgba(127, 168, 142, 0.55); color: #4F7860; }
-        .algo-chip.mid  { background: rgba(201, 148, 89, 0.18);  border-color: rgba(201, 148, 89, 0.50);  color: #9A6F35; }
-        .algo-chip.low  { background: rgba(120, 110, 100, 0.10); border-color: rgba(120, 110, 100, 0.30); color: #6B6660; }
         .stars {
           display: flex;
           gap: 4px;
@@ -837,10 +850,6 @@
           <button class="minimize-btn" id="minimizeBtn">_</button>
         </div>
         <div class="overlay-body">
-          <div class="algo-row" id="algoRow">
-            <span class="algo-label">Algo score</span>
-            <span class="algo-chip" id="algoChip" title=""></span>
-          </div>
           <div class="stars" id="stars">
             <button class="star" data-rating="1">\u2605</button>
             <button class="star" data-rating="2">\u2605</button>
@@ -905,36 +914,6 @@
     }
 
     renderState(job);
-
-    // ---- Algo score: scrape the detail page right now and render the chip ----
-    // Detail-page signals are richer than what's cached on a search card.
-    (function renderAlgoScore() {
-      try {
-        const fresh = scrapeDetailPage();           // title, budget, proposalsText, postedTimestamp, client metrics
-        const merged = { ...(jobs[jobId] || {}), ...fresh };
-        const { score, breakdown, missing } = computeJobScore(merged);
-        const chip = shadow.getElementById('algoChip');
-        chip.textContent = score;
-        chip.classList.add(score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low');
-
-        // Breakdown tooltip — shows which signals fired and which were missing
-        const lines = [
-          'Score: ' + score + '/100',
-          '',
-          ...Object.entries(breakdown).map(([k, v]) => `  ${k}: ${v}`),
-        ];
-        if (missing.length) lines.push('', 'Missing: ' + missing.join(', '));
-        chip.title = lines.join('\n');
-      } catch (e) {
-        // Don't break the overlay if scoring fails
-        const chip = shadow.getElementById('algoChip');
-        if (chip) {
-          chip.textContent = '—';
-          chip.classList.add('low');
-          chip.title = 'Score unavailable: ' + e.message;
-        }
-      }
-    })();
 
     // Star click
     // Build (or fetch) the job to save. If user hasn't shortlisted yet,
@@ -1424,6 +1403,8 @@
     } else if (pageType === 'detail') {
       injectDetailButton();
       injectReviewOverlay();
+      // Algo badge: scrape may need a moment after page hydration
+      setTimeout(injectAlgoScoreBadge, 600);
       setTimeout(detectAppliedStatus, 1000);
     } else if (pageType === 'proposal') {
       attachProposalSubmitHook();
