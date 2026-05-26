@@ -1052,6 +1052,16 @@
       };
     }
 
+    // Auto-tab-advance: after a rating or reject, close this tab and
+    // activate the next one in the window so the user keeps reviewing
+    // without trekking back to the tab bar.
+    function advanceToNextTab() {
+      // Tiny delay so the storage write commits + the visual state shows briefly
+      setTimeout(() => {
+        try { chrome.runtime.sendMessage({ action: 'closeTabAndAdvance' }); } catch (e) { /* ignore */ }
+      }, 250);
+    }
+
     stars.forEach(starBtn => {
       starBtn.addEventListener('click', async () => {
         const rating = parseInt(starBtn.dataset.rating);
@@ -1060,6 +1070,7 @@
         current.status = 'rated';
         await saveJob(current);
         renderState(current);
+        advanceToNextTab();
       });
     });
 
@@ -1070,6 +1081,7 @@
       current.status = 'rejected';
       await saveJob(current);
       renderState(current);
+      advanceToNextTab();
     });
 
     // Minimize toggle \u2014 click the pill itself to restore

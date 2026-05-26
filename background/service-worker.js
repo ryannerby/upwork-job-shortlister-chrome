@@ -25,8 +25,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'closeTabAndAdvance') {
+    closeTabAndAdvance(sender.tab);
+    sendResponse({ ok: true });
+    return false;
+  }
+
   return false;
 });
+
+// Close the calling tab and activate the next tab in the same window.
+// Used when user rates/rejects a job — saves a cursor trip to the tab bar.
+function closeTabAndAdvance(tab) {
+  if (!tab) return;
+  chrome.tabs.query({ windowId: tab.windowId }, (tabs) => {
+    const sorted = tabs.sort((a, b) => a.index - b.index);
+    const currentIdx = sorted.findIndex(t => t.id === tab.id);
+    const next = sorted[currentIdx + 1] || sorted[currentIdx - 1];
+    if (next) chrome.tabs.update(next.id, { active: true });
+    chrome.tabs.remove(tab.id);
+  });
+}
 
 async function openTabsStaggered(urls) {
   for (let i = 0; i < urls.length; i++) {
