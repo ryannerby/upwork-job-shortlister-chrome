@@ -249,74 +249,77 @@
     const missing = [];
     const flags = [];
 
-    // ----- Proposals (18 pts) — steep falloff after 5 -----
+    // ----- Proposals (22 pts) — outsized reward for <5; steep cliff after -----
     const p = (job.proposalsText || '').toLowerCase();
-    if (/less than 5|fewer than 5|<\s*5/.test(p))   b.proposals = 18;
-    else if (/50\+|over 50/.test(p))                b.proposals = 0;
+    if (/less than 5|fewer than 5|<\s*5/.test(p))   b.proposals = 22;
+    else if (/50\+|over 50/.test(p))                b.proposals = -3;
     else {
       const range = p.match(/(\d+)\s*(?:to|-)\s*(\d+)/);
       if (range) {
         const max = parseInt(range[2]);
-        if (max <= 10)      b.proposals = 8;   // big drop — first 5 get 3-5x more views
-        else if (max <= 15) b.proposals = 3;
-        else if (max <= 20) b.proposals = 1;
-        else                b.proposals = 0;
+        if (max <= 10)      b.proposals = 6;
+        else if (max <= 15) b.proposals = 1;
+        else if (max <= 20) b.proposals = 0;
+        else                b.proposals = -2;
       } else missing.push('proposals');
     }
 
-    // ----- Recency (14 pts) — steeper than before; reply rate craters after 1hr -----
+    // ----- Recency (12 pts) — sharper falloff -----
     if (job.postedTimestamp) {
       const ageMin = (Date.now() - job.postedTimestamp) / 60000;
-      if (ageMin < 15)        b.recency = 14;
-      else if (ageMin < 60)   b.recency = 9;
-      else if (ageMin < 120)  b.recency = 4;
-      else if (ageMin < 360)  b.recency = 2;
-      else if (ageMin < 1440) b.recency = 1;
-      else                    b.recency = 0;
+      if (ageMin < 15)        b.recency = 12;
+      else if (ageMin < 60)   b.recency = 7;
+      else if (ageMin < 120)  b.recency = 2;
+      else if (ageMin < 360)  b.recency = 0;
+      else if (ageMin < 1440) b.recency = -1;
+      else                    b.recency = -2;
     } else missing.push('recency');
 
-    // ----- Budget (16 pts) — niche-calibrated for AI automation -----
+    // ----- Budget (18 pts) — biggest signal in AI automation niche -----
+    // Bigger jumps at the $75 and $100/hr thresholds to differentiate
+    // "okay-rate" from "good-rate" from "premium" clients
     const budgetText = (job.budget || '').toLowerCase();
     const hourly = budgetText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)/);
     const fixed = !hourly && budgetText.match(/\$([\d,]+(?:\.\d+)?)/);
     if (hourly) {
       const max = parseFloat(hourly[2]);
-      if (max >= 125)     b.budget = 16;  // premium
-      else if (max >= 75) b.budget = 14;  // target
-      else if (max >= 50) b.budget = 8;   // base
-      else if (max >= 30) b.budget = 2;   // low
-      else                b.budget = -3;  // junk
+      if (max >= 100)     b.budget = 18;
+      else if (max >= 75) b.budget = 12;
+      else if (max >= 50) b.budget = 5;
+      else if (max >= 30) b.budget = 1;
+      else                b.budget = -5;
     } else if (fixed) {
       const v = parseFloat(fixed[1].replace(/,/g, ''));
-      if (v >= 25000)     b.budget = 16;
-      else if (v >= 5000) b.budget = 14;
-      else if (v >= 1000) b.budget = 8;
-      else if (v >= 300)  b.budget = 2;
-      else                b.budget = -2;
+      if (v >= 10000)     b.budget = 18;
+      else if (v >= 5000) b.budget = 12;
+      else if (v >= 1000) b.budget = 5;
+      else if (v >= 300)  b.budget = 1;
+      else                b.budget = -5;
     } else missing.push('budget');
 
-    // ----- Client total spend (12 pts) — $0 is a real penalty -----
+    // ----- Client total spend (13 pts) — $0 / <$1K = real red flags -----
     if (typeof job.clientTotalSpend === 'number') {
       const s = job.clientTotalSpend;
-      if (s === 0)          b.spend = -5;
-      else if (s >= 100000) b.spend = 12;
+      if (s === 0)          b.spend = -8;
+      else if (s < 1000)    b.spend = 0;
+      else if (s >= 100000) b.spend = 13;
       else if (s >= 10000)  b.spend = 9;
-      else if (s >= 1000)   b.spend = 4;
-      else                  b.spend = 0;
+      else                  b.spend = 4;
     } else missing.push('spend');
 
-    // ----- Hire rate (10 pts) — <20% is ghost territory -----
+    // ----- Hire rate (9 pts) — <20% bigger penalty -----
     if (typeof job.clientHireRate === 'number') {
       const hr = job.clientHireRate;
-      if (hr >= 0.75)      b.hireRate = 10;
-      else if (hr >= 0.50) b.hireRate = 7;
-      else if (hr >= 0.20) b.hireRate = 3;
-      else                 b.hireRate = -5;
+      if (hr >= 0.75)      b.hireRate = 9;
+      else if (hr >= 0.50) b.hireRate = 5;
+      else if (hr >= 0.20) b.hireRate = 2;
+      else                 b.hireRate = -8;
     } else missing.push('hireRate');
 
-    // ----- Payment verified (8 pts) — hard binary -----
+    // ----- Payment verified (5 pts) — only 5 since most jobs have it;
+    //       unverified is a real -10 penalty (no Upwork protection)
     if (typeof job.paymentVerified === 'boolean') {
-      b.paymentVerified = job.paymentVerified ? 8 : 0;
+      b.paymentVerified = job.paymentVerified ? 5 : -10;
       if (!job.paymentVerified) flags.push('no payment verification');
     } else missing.push('paymentVerified');
 
@@ -350,9 +353,9 @@
       b.scopeClarity = Math.min(5, pts);
     } else missing.push('scopeClarity');
 
-    // ----- Client tenure / sanity check (3 pts) -----
+    // ----- Client tenure / sanity check (2 pts) -----
     if (typeof job.clientMemberSinceDays === 'number') {
-      if (job.clientMemberSinceDays >= 365)     b.tenure = 3;
+      if (job.clientMemberSinceDays >= 365)     b.tenure = 2;
       else if (job.clientMemberSinceDays >= 90) b.tenure = 1;
       else if (job.clientMemberSinceDays < 30 && (job.clientReviews === 0 || job.clientReviews == null)) {
         b.tenure = -3;
