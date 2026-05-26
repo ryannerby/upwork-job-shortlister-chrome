@@ -193,6 +193,18 @@
     // Match the rating that precedes "of N reviews" (e.g. "5.00 of 29 reviews")
     // — works whether the page shows "5.0\n5.00 of 29 reviews" or one line.
     const clientRatingMatch = bodyText.match(/(\d\.\d{1,2})[\s\S]{0,30}of\s+\d+\s*reviews?/i);
+    const reviewCountMatch = bodyText.match(/of\s+(\d+)\s+reviews?/i);
+
+    // Anti-pattern signals
+    const paymentVerified = /payment\s+(?:method\s+)?verified/i.test(bodyText);
+    const jobsPostedMatch = bodyText.match(/(\d+)\s+jobs?\s+posted/i);
+    const clientJobsPosted = jobsPostedMatch ? parseInt(jobsPostedMatch[1]) : null;
+    const memberSinceMatch = bodyText.match(/Member\s+since\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+    let clientMemberSinceDays = null;
+    if (memberSinceMatch) {
+      const d = new Date(memberSinceMatch[1]);
+      if (!isNaN(d)) clientMemberSinceDays = Math.floor((Date.now() - d.getTime()) / 86400000);
+    }
 
     // Normalize spend with K/M multiplier
     let clientTotalSpend = null;
@@ -216,6 +228,10 @@
       clientTotalSpend,
       clientAvgHourly: avgHourlyMatch ? parseFloat(avgHourlyMatch[1]) : null,
       clientRating: clientRatingMatch ? parseFloat(clientRatingMatch[1]) : null,
+      clientReviews: reviewCountMatch ? parseInt(reviewCountMatch[1]) : null,
+      paymentVerified,
+      clientJobsPosted,
+      clientMemberSinceDays,
     };
   }
 
@@ -224,111 +240,144 @@
   // overlay — by that point all signals are visible so the score is
   // trustworthy. Cards on search pages are too sparse for this.
   // ----------------------------------------------------------
+  // Data-backed scoring calibrated against Upwork research (proposal hit-rate
+  // curves, hire-rate distribution, AI-automation niche rates). Total 100.
+  // Negative points apply for known anti-patterns. Final score is floored at 0.
   function computeJobScore(job) {
-    if (!job) return { score: 0, breakdown: {}, missing: [] };
+    if (!job) return { score: 0, breakdown: {}, missing: [], flags: [] };
     const b = {};
     const missing = [];
+    const flags = [];
 
-    // Proposals already submitted (20 pts)
+    // ----- Proposals (18 pts) — steep falloff after 5 -----
     const p = (job.proposalsText || '').toLowerCase();
-    if (/less than 5|fewer than 5|<\s*5/.test(p))     b.proposals = 20;
-    else if (/50\+|over 50/.test(p))                  b.proposals = 0;
+    if (/less than 5|fewer than 5|<\s*5/.test(p))   b.proposals = 18;
+    else if (/50\+|over 50/.test(p))                b.proposals = 0;
     else {
       const range = p.match(/(\d+)\s*(?:to|-)\s*(\d+)/);
       if (range) {
         const max = parseInt(range[2]);
-        if (max <= 10)      b.proposals = 17;
-        else if (max <= 15) b.proposals = 13;
-        else if (max <= 20) b.proposals = 10;
-        else if (max <= 50) b.proposals = 4;
+        if (max <= 10)      b.proposals = 8;   // big drop — first 5 get 3-5x more views
+        else if (max <= 15) b.proposals = 3;
+        else if (max <= 20) b.proposals = 1;
         else                b.proposals = 0;
       } else missing.push('proposals');
     }
 
-    // Recency (15 pts)
+    // ----- Recency (14 pts) — steeper than before; reply rate craters after 1hr -----
     if (job.postedTimestamp) {
       const ageMin = (Date.now() - job.postedTimestamp) / 60000;
-      if (ageMin < 15)        b.recency = 15;
-      else if (ageMin < 60)   b.recency = 12;
-      else if (ageMin < 360)  b.recency = 8;
-      else if (ageMin < 1440) b.recency = 5;
-      else if (ageMin < 4320) b.recency = 2;
+      if (ageMin < 15)        b.recency = 14;
+      else if (ageMin < 60)   b.recency = 9;
+      else if (ageMin < 120)  b.recency = 4;
+      else if (ageMin < 360)  b.recency = 2;
+      else if (ageMin < 1440) b.recency = 1;
       else                    b.recency = 0;
     } else missing.push('recency');
 
-    // Client total spend (15 pts, log scale)
-    if (typeof job.clientTotalSpend === 'number') {
-      const s = job.clientTotalSpend;
-      if (s >= 100000)    b.spend = 15;
-      else if (s >= 50000) b.spend = 13;
-      else if (s >= 10000) b.spend = 10;
-      else if (s >= 1000)  b.spend = 6;
-      else if (s >= 100)   b.spend = 3;
-      else                 b.spend = 0;
-    } else missing.push('spend');
-
-    // Budget tier (10 pts)
+    // ----- Budget (16 pts) — niche-calibrated for AI automation -----
     const budgetText = (job.budget || '').toLowerCase();
     const hourly = budgetText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)/);
     const fixed = !hourly && budgetText.match(/\$([\d,]+(?:\.\d+)?)/);
     if (hourly) {
       const max = parseFloat(hourly[2]);
-      if (max >= 50)      b.budget = 10;
-      else if (max >= 30) b.budget = 7;
-      else if (max >= 20) b.budget = 4;
-      else                b.budget = 2;
+      if (max >= 125)     b.budget = 16;  // premium
+      else if (max >= 75) b.budget = 14;  // target
+      else if (max >= 50) b.budget = 8;   // base
+      else if (max >= 30) b.budget = 2;   // low
+      else                b.budget = -3;  // junk
     } else if (fixed) {
       const v = parseFloat(fixed[1].replace(/,/g, ''));
-      if (v >= 5000)      b.budget = 10;
-      else if (v >= 1000) b.budget = 7;
-      else if (v >= 500)  b.budget = 4;
-      else if (v >= 100)  b.budget = 2;
-      else                b.budget = 0;
+      if (v >= 25000)     b.budget = 16;
+      else if (v >= 5000) b.budget = 14;
+      else if (v >= 1000) b.budget = 8;
+      else if (v >= 300)  b.budget = 2;
+      else                b.budget = -2;
     } else missing.push('budget');
 
-    // Hire rate (10 pts) — clientHireRate is 0..1
+    // ----- Client total spend (12 pts) — $0 is a real penalty -----
+    if (typeof job.clientTotalSpend === 'number') {
+      const s = job.clientTotalSpend;
+      if (s === 0)          b.spend = -5;
+      else if (s >= 100000) b.spend = 12;
+      else if (s >= 10000)  b.spend = 9;
+      else if (s >= 1000)   b.spend = 4;
+      else                  b.spend = 0;
+    } else missing.push('spend');
+
+    // ----- Hire rate (10 pts) — <20% is ghost territory -----
     if (typeof job.clientHireRate === 'number') {
-      b.hireRate = Math.round(job.clientHireRate * 10);
+      const hr = job.clientHireRate;
+      if (hr >= 0.75)      b.hireRate = 10;
+      else if (hr >= 0.50) b.hireRate = 7;
+      else if (hr >= 0.20) b.hireRate = 3;
+      else                 b.hireRate = -5;
     } else missing.push('hireRate');
 
-    // Client rating (10 pts)
+    // ----- Payment verified (8 pts) — hard binary -----
+    if (typeof job.paymentVerified === 'boolean') {
+      b.paymentVerified = job.paymentVerified ? 8 : 0;
+      if (!job.paymentVerified) flags.push('no payment verification');
+    } else missing.push('paymentVerified');
+
+    // ----- Client rating (6 pts) — most cluster at 4.9, so we discriminate at the top -----
     if (typeof job.clientRating === 'number') {
       const r = job.clientRating;
-      if (r >= 5.0)      b.rating = 10;
-      else if (r >= 4.8) b.rating = 8;
-      else if (r >= 4.5) b.rating = 5;
-      else if (r >= 4.0) b.rating = 2;
-      else               b.rating = 0;
+      if (r >= 4.95)     b.rating = 6;
+      else if (r >= 4.8) b.rating = 4;
+      else if (r >= 4.5) b.rating = 2;
+      else               b.rating = -3;
     } else missing.push('rating');
 
-    // LTV signal (10 pts) — keywords in description suggesting ongoing work
-    const desc = (job.descriptionSnippet || '').toLowerCase();
-    if (/\b(ongoing|long[-\s]term|weekly|monthly|continuous|recurring|retainer|part[-\s]time)\b/.test(desc)) {
-      b.ltv = 10;
-    } else {
-      b.ltv = 0;
-    }
-
-    // Description specificity (5 pts)
-    if (desc) {
-      let pts = 0;
-      if (desc.length > 500)      pts += 3;
-      else if (desc.length > 200) pts += 2;
-      if (/[•\-*]\s|\d\.\s/.test(desc)) pts += 2;
-      b.specificity = Math.min(5, pts);
-    } else missing.push('specificity');
-
-    // Reviews count (5 pts) — only present on detail page
+    // ----- Reviews count (6 pts) -----
     if (typeof job.clientReviews === 'number') {
       const n = job.clientReviews;
-      if (n >= 50)      b.reviews = 5;
-      else if (n >= 20) b.reviews = 4;
-      else if (n >= 5)  b.reviews = 2;
-      else              b.reviews = 1;
+      if (n >= 100)     b.reviews = 6;
+      else if (n >= 20) b.reviews = 5;
+      else if (n >= 5)  b.reviews = 3;
+      else if (n >= 1)  b.reviews = 1;
+      else              b.reviews = -2;
     } else missing.push('reviews');
 
-    const total = Object.values(b).reduce((sum, v) => sum + (v || 0), 0);
-    return { score: Math.round(total), breakdown: b, missing };
+    // ----- Scope clarity (5 pts) -----
+    const desc = (job.descriptionSnippet || '').toLowerCase();
+    if (desc) {
+      let pts = 0;
+      if (desc.length > 800)      pts += 2;
+      else if (desc.length > 400) pts += 1;
+      if (/[•·]\s|^\s*[-*]\s|^\d+[.)]\s/m.test(desc)) pts += 2;
+      if (/\bmilestone|deliverable|requirements?\b/.test(desc)) pts += 1;
+      b.scopeClarity = Math.min(5, pts);
+    } else missing.push('scopeClarity');
+
+    // ----- Client tenure / sanity check (3 pts) -----
+    if (typeof job.clientMemberSinceDays === 'number') {
+      if (job.clientMemberSinceDays >= 365)     b.tenure = 3;
+      else if (job.clientMemberSinceDays >= 90) b.tenure = 1;
+      else if (job.clientMemberSinceDays < 30 && (job.clientReviews === 0 || job.clientReviews == null)) {
+        b.tenure = -3;
+        flags.push('new account, no reviews');
+      } else b.tenure = 0;
+    }
+
+    // ----- LTV signal (2 pts) — soft tiebreaker only -----
+    if (/\b(ongoing|long[-\s]term|weekly|monthly|continuous|recurring|retainer|part[-\s]time)\b/.test(desc)) {
+      b.ltv = 2;
+    }
+
+    // ----- Sum + anti-pattern overlay -----
+    let total = Object.values(b).reduce((sum, v) => sum + (v || 0), 0);
+
+    // Ghost-lister cap: 0% hire rate with multiple posts is a strong red flag
+    if (job.clientHireRate === 0 && typeof job.clientJobsPosted === 'number' && job.clientJobsPosted >= 5) {
+      total = Math.min(total, 30);
+      flags.push('ghost lister (0% hire rate, multiple posts)');
+    }
+
+    // Floor at 0
+    total = Math.max(0, total);
+
+    return { score: Math.round(total), breakdown: b, missing, flags };
   }
 
   // ----------------------------------------------------------
@@ -911,15 +960,26 @@
       try {
         const fresh = scrapeDetailPage();
         const merged = { ...(jobs[jobId] || {}), ...fresh };
-        const { score, breakdown, missing } = computeJobScore(merged);
+        const { score, breakdown, missing, flags } = computeJobScore(merged);
         const tier = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
         algoEl.classList.remove('high', 'mid', 'low');
         algoEl.classList.add(tier);
         algoNumEl.textContent = score;
         algoTierEl.textContent = tier === 'high' ? 'strong' : tier === 'mid' ? 'okay' : 'weak';
         const lines = ['Algo score ' + score + '/100', ''];
-        for (const [k, v] of Object.entries(breakdown)) lines.push('  ' + k + ': ' + v);
-        if (missing.length) { lines.push(''); lines.push('Missing: ' + missing.join(', ')); }
+        for (const [k, v] of Object.entries(breakdown)) {
+          const sign = v < 0 ? '' : '+';  // negative shown as-is
+          lines.push('  ' + k + ': ' + sign + v);
+        }
+        if (flags && flags.length) {
+          lines.push('');
+          lines.push('Red flags:');
+          flags.forEach(f => lines.push('  ⚠ ' + f));
+        }
+        if (missing && missing.length) {
+          lines.push('');
+          lines.push('Missing signals: ' + missing.join(', '));
+        }
         algoEl.title = lines.join('\n');
       } catch (e) {
         algoEl.title = 'Score unavailable: ' + e.message;
