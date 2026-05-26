@@ -608,41 +608,6 @@
   }
 
   // ----------------------------------------------------------
-  // Algo score badge — inline next to the job title at the top
-  // of the detail page. No mouse travel to the corner.
-  // ----------------------------------------------------------
-  function injectAlgoScoreBadge() {
-    if (document.querySelector('.ujs-algo-badge')) return;
-    const titleEl = document.querySelector('[data-test="job-title"], h3.job-header-title, h1.job-title, h4.m-0');
-    if (!titleEl) return;
-
-    let fresh;
-    try { fresh = scrapeDetailPage(); } catch (e) { return; }
-
-    const { score, breakdown, missing } = computeJobScore(fresh);
-    const tier = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
-
-    const badge = document.createElement('div');
-    badge.className = 'ujs-algo-badge ujs-algo-' + tier;
-    badge.innerHTML = `
-      <span class="ujs-algo-label">Algo score</span>
-      <span class="ujs-algo-value">${score}</span>
-      <span class="ujs-algo-total">/100</span>
-    `;
-
-    const lines = [
-      'Algo score: ' + score + '/100',
-      '',
-      ...Object.entries(breakdown).map(([k, v]) => `  ${k}: ${v}`),
-    ];
-    if (missing.length) lines.push('', 'Missing signals: ' + missing.join(', '));
-    badge.title = lines.join('\n');
-
-    // Inject as a sibling right after the title heading
-    titleEl.parentElement.insertBefore(badge, titleEl.nextSibling);
-  }
-
-  // ----------------------------------------------------------
   // Shortlist button on JOB DETAIL page
   // ----------------------------------------------------------
   async function injectDetailButton() {
@@ -714,117 +679,174 @@
           all: initial;
           font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
         }
-        .overlay {
+        .card {
           position: fixed;
-          bottom: 22px;
-          right: 22px;
-          width: 280px;
+          top: 84px;
+          right: 24px;
+          width: 296px;
           background: #FFFFFF;
-          border: 1px solid rgba(60, 50, 40, 0.10);
-          border-radius: 14px;
-          box-shadow: 0 4px 16px rgba(60, 50, 40, 0.10), 0 12px 32px rgba(60, 50, 40, 0.06);
+          border: 1px solid rgba(60, 50, 40, 0.08);
+          border-radius: 16px;
+          box-shadow: 0 1px 2px rgba(60, 50, 40, 0.04), 0 6px 24px rgba(60, 50, 40, 0.08);
           color: #3D3A36;
           z-index: 999999;
           overflow: hidden;
-          transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+          transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .overlay.minimized {
-          width: auto;
+
+        /* Minimized = small circular pill in same corner */
+        .card.minimized {
+          width: 44px;
+          height: 44px;
+          padding: 0;
           border-radius: 50%;
-          background: transparent;
-          border: none;
-          box-shadow: none;
-        }
-        .overlay.minimized .overlay-body { display: none; }
-        .overlay.minimized .overlay-header { border: none; padding: 6px; background: transparent; }
-        .overlay.minimized .overlay-header span { display: none; }
-        .overlay.minimized .minimize-btn {
-          color: #7FA88E;
-          font-size: 22px;
-          opacity: 0.7;
-          background: #FFFFFF;
-          border: 1px solid rgba(127, 168, 142, 0.30);
-          border-radius: 50%;
-          width: 36px;
-          height: 36px;
+          cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 2px 6px rgba(60, 50, 40, 0.06);
+          background: #FFFFFF;
+          border-color: rgba(127, 168, 142, 0.32);
+          box-shadow: 0 1px 3px rgba(60, 50, 40, 0.08), 0 6px 18px rgba(60, 50, 40, 0.06);
         }
-        .overlay.minimized .minimize-btn:hover { opacity: 1; background: #fff; }
-        .overlay-header {
+        .card.minimized .body { display: none; }
+        .card.minimized .header { display: none; }
+        .card.minimized::before {
+          content: '\u2605';
+          color: #7FA88E;
+          font-size: 20px;
+        }
+
+        .header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 16px;
-          background: transparent;
-          color: #3D3A36;
-          font-size: 13px;
-          font-weight: 600;
-          letter-spacing: -0.01em;
-          cursor: pointer;
-          border-bottom: 1px solid rgba(60, 50, 40, 0.08);
+          padding: 14px 16px 8px;
         }
-        .overlay-header span { flex: 1; }
-        .minimize-btn {
-          background: none;
-          border: none;
+        .header-label {
+          font-size: 11px;
+          font-weight: 500;
           color: #8A857F;
-          font-size: 16px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+        .minimize-btn {
+          width: 22px;
+          height: 22px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: none;
+          border-radius: 6px;
+          color: #A39E97;
           cursor: pointer;
-          padding: 2px 6px;
-          opacity: 0.7;
-          border-radius: 4px;
+          padding: 0;
+          transition: background 100ms ease, color 100ms ease;
+        }
+        .minimize-btn:hover {
+          background: rgba(60, 50, 40, 0.06);
+          color: #3D3A36;
+        }
+
+        .body {
+          padding: 4px 18px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        /* Algo score block */
+        .algo {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          padding: 10px 14px;
+          border-radius: 12px;
+          border: 1px solid;
+        }
+        .algo-num {
+          font-size: 26px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          font-variant-numeric: tabular-nums;
           line-height: 1;
-          transition: opacity 100ms ease, background-color 100ms ease;
         }
-        .minimize-btn:hover { opacity: 1; background: rgba(60, 50, 40, 0.05); }
-        .overlay-body {
-          padding: 16px;
+        .algo-of {
+          font-size: 12px;
+          font-weight: 500;
+          opacity: 0.55;
+          margin-right: auto;
         }
+        .algo-tier {
+          font-size: 10.5px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          opacity: 0.7;
+        }
+        .algo.high { background: rgba(127, 168, 142, 0.14); border-color: rgba(127, 168, 142, 0.40); color: #4F7860; }
+        .algo.mid  { background: rgba(201, 148, 89, 0.12);  border-color: rgba(201, 148, 89, 0.35);  color: #9A6F35; }
+        .algo.low  { background: rgba(120, 110, 100, 0.08); border-color: rgba(120, 110, 100, 0.25); color: #6B6660; }
+
+        /* Section label */
+        .section-label {
+          font-size: 11px;
+          font-weight: 500;
+          color: #8A857F;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          margin-bottom: -6px;
+        }
+
         .stars {
           display: flex;
-          gap: 4px;
-          margin-bottom: 14px;
-          justify-content: center;
+          gap: 2px;
+          justify-content: space-between;
         }
         .star {
-          font-size: 26px;
+          flex: 1;
+          height: 36px;
+          font-size: 22px;
           cursor: pointer;
-          background: none;
+          background: transparent;
           border: none;
-          padding: 2px;
-          color: #D6D2CB;
-          transition: color 120ms ease, transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+          color: #DCD8D2;
+          padding: 0;
+          border-radius: 8px;
+          transition: color 120ms ease, background 120ms ease, transform 80ms ease;
           line-height: 1;
         }
-        .star:hover { transform: scale(1.12); color: #C99459; }
+        .star:hover {
+          color: #C99459;
+          background: rgba(201, 148, 89, 0.08);
+        }
+        .star:active { transform: scale(0.94); }
         .star.active { color: #C99459; }
+
         .actions {
           display: flex;
           gap: 8px;
-          justify-content: center;
         }
         .btn {
-          padding: 7px 16px;
-          border-radius: 8px;
-          border: 1px solid rgba(60, 50, 40, 0.12);
-          background: #fff;
-          color: #3D3A36;
+          flex: 1;
+          padding: 9px 14px;
+          border-radius: 10px;
+          border: 1px solid;
+          background: transparent;
           cursor: pointer;
-          font-size: 12px;
+          font-size: 12.5px;
           font-weight: 500;
-          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
           font-family: inherit;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
-        .btn:hover { background: #F5F4F1; border-color: rgba(60, 50, 40, 0.18); }
         .btn-reject {
           color: #C97B7B;
-          border-color: rgba(201, 123, 123, 0.30);
-          background: rgba(201, 123, 123, 0.06);
+          border-color: rgba(201, 123, 123, 0.32);
         }
-        .btn-reject:hover { background: rgba(201, 123, 123, 0.12); border-color: rgba(201, 123, 123, 0.50); }
+        .btn-reject:hover {
+          background: rgba(201, 123, 123, 0.10);
+          border-color: rgba(201, 123, 123, 0.55);
+        }
         .btn-reject.active {
           background: #C97B7B;
           color: #fff;
@@ -832,24 +854,33 @@
         }
         .btn-restore {
           color: #5E8A6F;
-          border-color: rgba(127, 168, 142, 0.30);
-          background: rgba(127, 168, 142, 0.08);
+          border-color: rgba(127, 168, 142, 0.32);
         }
-        .btn-restore:hover { background: rgba(127, 168, 142, 0.16); }
+        .btn-restore:hover {
+          background: rgba(127, 168, 142, 0.10);
+          border-color: rgba(127, 168, 142, 0.55);
+        }
+
         .status-text {
-          text-align: center;
           font-size: 11px;
           color: #8A857F;
-          margin-top: 10px;
-          letter-spacing: 0.005em;
+          text-align: center;
         }
       </style>
-      <div class="overlay" id="overlay">
-        <div class="overlay-header" id="header">
-          <span>Review Job</span>
-          <button class="minimize-btn" id="minimizeBtn">_</button>
+      <div class="card" id="card">
+        <div class="header">
+          <span class="header-label">Job review</span>
+          <button class="minimize-btn" id="minimizeBtn" title="Minimize" aria-label="Minimize">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="6" x2="10" y2="6"></line></svg>
+          </button>
         </div>
-        <div class="overlay-body">
+        <div class="body">
+          <div class="algo low" id="algo" title="">
+            <span class="algo-num" id="algoNum">\u2014</span>
+            <span class="algo-of">/100</span>
+            <span class="algo-tier" id="algoTier">scoring\u2026</span>
+          </div>
+          <div class="section-label">Your rating</div>
           <div class="stars" id="stars">
             <button class="star" data-rating="1">\u2605</button>
             <button class="star" data-rating="2">\u2605</button>
@@ -865,12 +896,38 @@
       </div>
     `;
 
-    const overlay = shadow.getElementById('overlay');
+    const card = shadow.getElementById('card');
     const stars = shadow.querySelectorAll('.star');
     const rejectBtn = shadow.getElementById('rejectBtn');
     const statusText = shadow.getElementById('statusText');
     const minimizeBtn = shadow.getElementById('minimizeBtn');
     const actionsDiv = shadow.getElementById('actions');
+    const algoEl = shadow.getElementById('algo');
+    const algoNumEl = shadow.getElementById('algoNum');
+    const algoTierEl = shadow.getElementById('algoTier');
+
+    // Render algo score — runs after page hydration so all signals are scraped
+    function renderAlgoScore() {
+      try {
+        const fresh = scrapeDetailPage();
+        const merged = { ...(jobs[jobId] || {}), ...fresh };
+        const { score, breakdown, missing } = computeJobScore(merged);
+        const tier = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
+        algoEl.classList.remove('high', 'mid', 'low');
+        algoEl.classList.add(tier);
+        algoNumEl.textContent = score;
+        algoTierEl.textContent = tier === 'high' ? 'strong' : tier === 'mid' ? 'okay' : 'weak';
+        const lines = ['Algo score ' + score + '/100', ''];
+        for (const [k, v] of Object.entries(breakdown)) lines.push('  ' + k + ': ' + v);
+        if (missing.length) { lines.push(''); lines.push('Missing: ' + missing.join(', ')); }
+        algoEl.title = lines.join('\n');
+      } catch (e) {
+        algoEl.title = 'Score unavailable: ' + e.message;
+      }
+    }
+    renderAlgoScore();
+    // Re-score once after a beat — gives SPA a chance to finish hydrating
+    setTimeout(renderAlgoScore, 1500);
 
     // Restore state
     function renderState(j) {
@@ -952,15 +1009,20 @@
       renderState(current);
     });
 
-    // Minimize toggle
+    // Minimize toggle \u2014 click the pill itself to restore
     let minimized = false;
-    minimizeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      minimized = !minimized;
-      overlay.classList.toggle('minimized', minimized);
-      minimizeBtn.textContent = minimized ? '\u2605' : '_';
+    function setMinimized(state) {
+      minimized = state;
+      card.classList.toggle('minimized', minimized);
       const detailBtn = document.querySelector('.ujs-detail-btn');
       if (detailBtn) detailBtn.style.display = minimized ? 'none' : '';
+    }
+    minimizeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setMinimized(true);
+    });
+    card.addEventListener('click', (e) => {
+      if (minimized) setMinimized(false);
     });
 
     document.body.appendChild(host);
@@ -1402,10 +1464,10 @@
       observeSearchResults();
     } else if (pageType === 'detail') {
       injectDetailButton();
-      injectReviewOverlay();
-      // Algo badge: scrape may need a moment after page hydration
-      setTimeout(injectAlgoScoreBadge, 600);
-      setTimeout(detectAppliedStatus, 1000);
+      // Inject overlay after a beat — gives Upwork's SPA time to hydrate
+      // the description / posted date / client info into the DOM.
+      setTimeout(injectReviewOverlay, 1200);
+      setTimeout(detectAppliedStatus, 1500);
     } else if (pageType === 'proposal') {
       attachProposalSubmitHook();
     }
