@@ -209,6 +209,118 @@
   }
 
   // ----------------------------------------------------------
+  // Detail-page deterministic score (0-100). Used inside the Review
+  // overlay — by that point all signals are visible so the score is
+  // trustworthy. Cards on search pages are too sparse for this.
+  // ----------------------------------------------------------
+  function computeJobScore(job) {
+    if (!job) return { score: 0, breakdown: {}, missing: [] };
+    const b = {};
+    const missing = [];
+
+    // Proposals already submitted (20 pts)
+    const p = (job.proposalsText || '').toLowerCase();
+    if (/less than 5|fewer than 5|<\s*5/.test(p))     b.proposals = 20;
+    else if (/50\+|over 50/.test(p))                  b.proposals = 0;
+    else {
+      const range = p.match(/(\d+)\s*(?:to|-)\s*(\d+)/);
+      if (range) {
+        const max = parseInt(range[2]);
+        if (max <= 10)      b.proposals = 17;
+        else if (max <= 15) b.proposals = 13;
+        else if (max <= 20) b.proposals = 10;
+        else if (max <= 50) b.proposals = 4;
+        else                b.proposals = 0;
+      } else missing.push('proposals');
+    }
+
+    // Recency (15 pts)
+    if (job.postedTimestamp) {
+      const ageMin = (Date.now() - job.postedTimestamp) / 60000;
+      if (ageMin < 15)        b.recency = 15;
+      else if (ageMin < 60)   b.recency = 12;
+      else if (ageMin < 360)  b.recency = 8;
+      else if (ageMin < 1440) b.recency = 5;
+      else if (ageMin < 4320) b.recency = 2;
+      else                    b.recency = 0;
+    } else missing.push('recency');
+
+    // Client total spend (15 pts, log scale)
+    if (typeof job.clientTotalSpend === 'number') {
+      const s = job.clientTotalSpend;
+      if (s >= 100000)    b.spend = 15;
+      else if (s >= 50000) b.spend = 13;
+      else if (s >= 10000) b.spend = 10;
+      else if (s >= 1000)  b.spend = 6;
+      else if (s >= 100)   b.spend = 3;
+      else                 b.spend = 0;
+    } else missing.push('spend');
+
+    // Budget tier (10 pts)
+    const budgetText = (job.budget || '').toLowerCase();
+    const hourly = budgetText.match(/\$([\d.]+)\s*[-–]\s*\$([\d.]+)/);
+    const fixed = !hourly && budgetText.match(/\$([\d,]+(?:\.\d+)?)/);
+    if (hourly) {
+      const max = parseFloat(hourly[2]);
+      if (max >= 50)      b.budget = 10;
+      else if (max >= 30) b.budget = 7;
+      else if (max >= 20) b.budget = 4;
+      else                b.budget = 2;
+    } else if (fixed) {
+      const v = parseFloat(fixed[1].replace(/,/g, ''));
+      if (v >= 5000)      b.budget = 10;
+      else if (v >= 1000) b.budget = 7;
+      else if (v >= 500)  b.budget = 4;
+      else if (v >= 100)  b.budget = 2;
+      else                b.budget = 0;
+    } else missing.push('budget');
+
+    // Hire rate (10 pts) — clientHireRate is 0..1
+    if (typeof job.clientHireRate === 'number') {
+      b.hireRate = Math.round(job.clientHireRate * 10);
+    } else missing.push('hireRate');
+
+    // Client rating (10 pts)
+    if (typeof job.clientRating === 'number') {
+      const r = job.clientRating;
+      if (r >= 5.0)      b.rating = 10;
+      else if (r >= 4.8) b.rating = 8;
+      else if (r >= 4.5) b.rating = 5;
+      else if (r >= 4.0) b.rating = 2;
+      else               b.rating = 0;
+    } else missing.push('rating');
+
+    // LTV signal (10 pts) — keywords in description suggesting ongoing work
+    const desc = (job.descriptionSnippet || '').toLowerCase();
+    if (/\b(ongoing|long[-\s]term|weekly|monthly|continuous|recurring|retainer|part[-\s]time)\b/.test(desc)) {
+      b.ltv = 10;
+    } else {
+      b.ltv = 0;
+    }
+
+    // Description specificity (5 pts)
+    if (desc) {
+      let pts = 0;
+      if (desc.length > 500)      pts += 3;
+      else if (desc.length > 200) pts += 2;
+      if (/[•\-*]\s|\d\.\s/.test(desc)) pts += 2;
+      b.specificity = Math.min(5, pts);
+    } else missing.push('specificity');
+
+    // Reviews count (5 pts) — only present on detail page
+    if (typeof job.clientReviews === 'number') {
+      const n = job.clientReviews;
+      if (n >= 50)      b.reviews = 5;
+      else if (n >= 20) b.reviews = 4;
+      else if (n >= 5)  b.reviews = 2;
+      else              b.reviews = 1;
+    } else missing.push('reviews');
+
+    const total = Object.values(b).reduce((sum, v) => sum + (v || 0), 0);
+    return { score: Math.round(total), breakdown: b, missing };
+  }
+
+  // ----------------------------------------------------------
   // Scrape a single search result card
   // ----------------------------------------------------------
   function scrapeSearchCard(card) {
@@ -625,6 +737,39 @@
         .overlay-body {
           padding: 16px;
         }
+        .algo-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          margin-bottom: 14px;
+          border-radius: 10px;
+          background: rgba(60, 50, 40, 0.03);
+          border: 1px solid rgba(60, 50, 40, 0.08);
+        }
+        .algo-label {
+          font-size: 11.5px;
+          font-weight: 500;
+          color: #8A857F;
+          letter-spacing: 0.01em;
+        }
+        .algo-chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 40px;
+          height: 24px;
+          padding: 0 9px;
+          border-radius: 12px;
+          font-size: 12.5px;
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          border: 1px solid;
+          cursor: help;
+        }
+        .algo-chip.high { background: rgba(127, 168, 142, 0.20); border-color: rgba(127, 168, 142, 0.55); color: #4F7860; }
+        .algo-chip.mid  { background: rgba(201, 148, 89, 0.18);  border-color: rgba(201, 148, 89, 0.50);  color: #9A6F35; }
+        .algo-chip.low  { background: rgba(120, 110, 100, 0.10); border-color: rgba(120, 110, 100, 0.30); color: #6B6660; }
         .stars {
           display: flex;
           gap: 4px;
@@ -692,6 +837,10 @@
           <button class="minimize-btn" id="minimizeBtn">_</button>
         </div>
         <div class="overlay-body">
+          <div class="algo-row" id="algoRow">
+            <span class="algo-label">Algo score</span>
+            <span class="algo-chip" id="algoChip" title=""></span>
+          </div>
           <div class="stars" id="stars">
             <button class="star" data-rating="1">\u2605</button>
             <button class="star" data-rating="2">\u2605</button>
@@ -756,6 +905,36 @@
     }
 
     renderState(job);
+
+    // ---- Algo score: scrape the detail page right now and render the chip ----
+    // Detail-page signals are richer than what's cached on a search card.
+    (function renderAlgoScore() {
+      try {
+        const fresh = scrapeDetailPage();           // title, budget, proposalsText, postedTimestamp, client metrics
+        const merged = { ...(jobs[jobId] || {}), ...fresh };
+        const { score, breakdown, missing } = computeJobScore(merged);
+        const chip = shadow.getElementById('algoChip');
+        chip.textContent = score;
+        chip.classList.add(score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low');
+
+        // Breakdown tooltip — shows which signals fired and which were missing
+        const lines = [
+          'Score: ' + score + '/100',
+          '',
+          ...Object.entries(breakdown).map(([k, v]) => `  ${k}: ${v}`),
+        ];
+        if (missing.length) lines.push('', 'Missing: ' + missing.join(', '));
+        chip.title = lines.join('\n');
+      } catch (e) {
+        // Don't break the overlay if scoring fails
+        const chip = shadow.getElementById('algoChip');
+        if (chip) {
+          chip.textContent = '—';
+          chip.classList.add('low');
+          chip.title = 'Score unavailable: ' + e.message;
+        }
+      }
+    })();
 
     // Star click
     // Build (or fetch) the job to save. If user hasn't shortlisted yet,
