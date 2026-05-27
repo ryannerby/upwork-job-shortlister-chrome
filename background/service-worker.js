@@ -144,7 +144,14 @@ function buildNotionProperties(job) {
     props['Job Title'] = { title: [{ text: { content: clamp(job.title, 200) } }] };
   }
 
-  props['Date Applied'] = { date: { start: new Date(job.dateApplied || Date.now()).toISOString() } };
+  // Date-only (not datetime) to avoid timezone-converted timestamps showing
+  // up as "8pm" in Notion. Use LOCAL calendar date.
+  const d = new Date(job.dateApplied || Date.now());
+  const localDateStr =
+    d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+  props['Date Applied'] = { date: { start: localDateStr } };
 
   if (job.url) props['Job URL'] = { url: job.url };
 
