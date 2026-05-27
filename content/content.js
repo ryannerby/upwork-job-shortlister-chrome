@@ -153,6 +153,60 @@
   // ----------------------------------------------------------
   // Scrape job detail page
   // ----------------------------------------------------------
+  // Find Upwork's "more" toggle that expands the truncated description.
+  // Returns the button element if found, else null.
+  function findDescriptionMoreToggle() {
+    // Try common test IDs first
+    const direct = document.querySelector('[data-test="description-toggle"], [data-test="more-link"], button[aria-label*="show more" i]');
+    if (direct) return direct;
+    // Fallback: any button/anchor with text "more" or "Show more" sitting
+    // inside the description region
+    const descRegion = document.querySelector('[data-test="Description"], [data-test="JobDescription"], .job-description');
+    const root = descRegion || document;
+    const candidates = root.querySelectorAll('button, a');
+    for (const el of candidates) {
+      const t = (el.textContent || '').trim().toLowerCase();
+      if (t === 'more' || t === 'show more' || t === 'read more') return el;
+    }
+    return null;
+  }
+
+  // Programmatically expand the truncated description so scrape captures
+  // the full text, not the clipped version.
+  async function expandDescriptionIfTruncated() {
+    const btn = findDescriptionMoreToggle();
+    if (!btn) return;
+    btn.click();
+    // Give the SPA a beat to update the DOM
+    await new Promise(r => setTimeout(r, 250));
+  }
+
+  // Hook for when the user manually clicks "more" — re-scrape and update
+  // the cached description so the latest text lands in the Notion push.
+  function hookManualMoreClick(jobId) {
+    if (document.body.dataset.ujsMoreHook === '1') return;
+    document.body.dataset.ujsMoreHook = '1';
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button, a');
+      if (!target) return;
+      const text = (target.textContent || '').trim().toLowerCase();
+      if (text !== 'more' && text !== 'show more' && text !== 'read more') return;
+      // Wait for the expansion, then re-scrape and update the cached job
+      setTimeout(async () => {
+        try {
+          const fresh = scrapeDetailPage();
+          if (!fresh.descriptionSnippet) return;
+          const jobs = await getJobs();
+          const cached = jobs[jobId];
+          if (cached) {
+            cached.descriptionSnippet = fresh.descriptionSnippet;
+            await saveJob(cached);
+          }
+        } catch (e2) { /* ignore */ }
+      }, 300);
+    }, true);
+  }
+
   function scrapeDetailPage() {
     const s = SELECTORS.detail;
     let title = safeTextMulti(document, s.title);
@@ -169,7 +223,9 @@
                    document.querySelector(s.description.split(',')[1]) ||
                    document.querySelector(s.description.split(',')[2]);
     let fullDesc = descEl ? descEl.textContent.trim() : '';
-    let descriptionSnippet = fullDesc.substring(0, 200);
+    // Cap at 2000 chars (Notion rich_text limit). Was 200, which truncated
+    // full descriptions captured from the detail page.
+    let descriptionSnippet = fullDesc.substring(0, 2000);
 
     // Best-effort heuristic scrapes for Notion sync — silently null on miss
     const bodyText = document.body.innerText || '';
@@ -1452,7 +1508,10 @@
       // total cost (base + boost). Don't conflate with boost amount alone.
       connectsSpent: pending.connectsSpent,
       proposalValue: confSnap.proposalValueFromConfirmation,
-      earningsAfterFees: confSnap.earningsAfterFeesFromConfirmation,
+      // Leave earnings-after-fees null at submission time — the user fills
+      // it in manually after the actual payout clears (Upwork's "you'll
+      // receive" estimate doesn't account for taxes / withdrawal fees)
+      earningsAfterFees: null,
       dateApplied: pending.dateApplied || Date.now(),
     };
 
@@ -1539,9 +1598,14 @@
       observeSearchResults();
     } else if (pageType === 'detail') {
       injectDetailButton();
-      // Inject overlay after a beat — gives Upwork's SPA time to hydrate
-      // the description / posted date / client info into the DOM.
-      setTimeout(injectReviewOverlay, 1200);
+      // Expand truncated description (silent click on "more" toggle), then
+      // inject the review overlay so its scrape captures the full text
+      setTimeout(async () => {
+        await expandDescriptionIfTruncated();
+        injectReviewOverlay();
+        const jobId = getJobIdFromUrl();
+        if (jobId) hookManualMoreClick(jobId);
+      }, 1200);
       setTimeout(detectAppliedStatus, 1500);
     } else if (pageType === 'proposal') {
       attachProposalSubmitHook();
