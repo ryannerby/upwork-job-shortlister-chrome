@@ -1227,8 +1227,22 @@
     if (!jobId) return;
 
     const jobs = await getJobs();
-    const job = jobs[jobId];
-    if (!job || job.status === 'applied') return;
+    let job = jobs[jobId];
+    if (job && job.status === 'applied') return;
+
+    // No cached job? User applied to a job that was never shortlisted.
+    // Build a stub from the confirmation page so the Notion push has
+    // title/URL/description to work with.
+    if (!job) {
+      const snap = scrapeClientInfoFromPage();
+      job = {
+        id: jobId,
+        url: snap.urlFromPage || null,
+        title: snap.titleFromPage || 'Untitled job',
+        shortlistedAt: Date.now(),
+        rating: null,
+      };
+    }
 
     const bodyText = document.body.innerText.toLowerCase();
     const onApplyForm = /\/apply\b/.test(path);
@@ -1432,6 +1446,31 @@
     const descEl = document.querySelector('[data-test="Description"], [data-test="JobDescription"], .job-description, [class*="description" i]');
     const descriptionFromPage = descEl ? descEl.textContent.trim().substring(0, 2000) : null;
 
+    // Title + URL from confirmation page (needed when user applies straight
+    // from detail without ever shortlisting → no cached job to read these from)
+    let titleFromPage = null;
+    const jobDetailsHeading = [...document.querySelectorAll('h1, h2, h3')].find(h => /^job\s+details$/i.test(h.textContent.trim()));
+    if (jobDetailsHeading) {
+      const container = jobDetailsHeading.closest('section, div') || jobDetailsHeading.parentElement;
+      const headings = container.querySelectorAll('h1, h2, h3, h4');
+      for (const h of headings) {
+        if (h !== jobDetailsHeading) {
+          const t = h.textContent.trim();
+          if (t.length > 5 && !/proposal|insights|profile|skills|activity|terms/i.test(t)) {
+            titleFromPage = t;
+            break;
+          }
+        }
+      }
+    }
+    if (!titleFromPage && document.title) {
+      titleFromPage = document.title.replace(/\s*[|·-]\s*Upwork.*$/i, '').trim() || null;
+    }
+
+    let urlFromPage = null;
+    const viewJobLink = [...document.querySelectorAll('a')].find(a => /view\s+job\s+posting/i.test(a.textContent || ''));
+    if (viewJobLink && viewJobLink.href) urlFromPage = viewJobLink.href.split('?')[0];
+
     return {
       clientHireRate: hireRateMatch ? parseInt(hireRateMatch[1]) / 100 : null,
       clientTotalSpend,
@@ -1445,6 +1484,8 @@
       boostUsedFromConfirmation,
       boostAmountFromConfirmation,
       descriptionFromPage,
+      titleFromPage,
+      urlFromPage,
     };
   }
 
@@ -1493,16 +1534,21 @@
     }, r));
     if (data.pendingPushes[jobId]) return; // already captured
 
-    const job = data.jobs[jobId];
-    if (!job) return;
+    // Re-scrape the CURRENT page (this fires on the confirmation page, where
+    // client info is freshly visible — the apply form doesn't show it).
+    const confSnap = scrapeClientInfoFromPage();
+
+    // If the job was never shortlisted, build a minimal stub from the
+    // confirmation page so we have title + URL for the Notion row.
+    const job = data.jobs[jobId] || {
+      id: jobId,
+      url: confSnap.urlFromPage || null,
+      title: confSnap.titleFromPage || 'Untitled job',
+    };
 
     const pending = data.pendingApplication && data.pendingApplication.jobId === jobId
       ? data.pendingApplication
       : {};
-
-    // Re-scrape the CURRENT page (this fires on the confirmation page, where
-    // client info is freshly visible — the apply form doesn't show it).
-    const confSnap = scrapeClientInfoFromPage();
 
     // Prefer fresh confirmation-page data, then form-page snapshot,
     // then cached detail-page values.
@@ -1515,8 +1561,8 @@
 
     const payload = {
       id: jobId,
-      url: job.url || window.location.href.split('?')[0],
-      title: job.title,
+      url: pick3(job.url, confSnap.urlFromPage, window.location.href.split('?')[0]),
+      title: pick3(job.title, confSnap.titleFromPage),
       budget: pick3(confSnap.budgetFromPage, pending.budgetFromPage, job.budget),
       skills: job.skills,
       descriptionSnippet: pick3(confSnap.descriptionFromPage, job.descriptionSnippet, pending.descriptionFromPage),
