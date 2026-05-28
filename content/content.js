@@ -207,6 +207,32 @@
     }, true);
   }
 
+  // Hook for the post-submit success page — when user clicks "more" to
+  // expand the truncated job description, re-scrape it and update the
+  // pending push entry so the FULL text lands in Notion when they push.
+  function hookConfirmationMoreClick(jobId) {
+    if (document.body.dataset.ujsConfMoreHook === '1') return;
+    document.body.dataset.ujsConfMoreHook = '1';
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button, a');
+      if (!target) return;
+      const text = (target.textContent || '').trim().toLowerCase();
+      if (text !== 'more' && text !== 'show more' && text !== 'read more') return;
+      setTimeout(async () => {
+        try {
+          const snap = scrapeClientInfoFromPage();
+          if (!snap.descriptionFromPage) return;
+          const data = await new Promise(r => chrome.storage.local.get({ pendingPushes: {} }, r));
+          const entry = data.pendingPushes[jobId];
+          if (entry && entry.payload) {
+            entry.payload.descriptionSnippet = snap.descriptionFromPage;
+            chrome.storage.local.set({ pendingPushes: data.pendingPushes });
+          }
+        } catch (e2) { /* ignore */ }
+      }, 300);
+    }, true);
+  }
+
   function scrapeDetailPage() {
     const s = SELECTORS.detail;
     let title = safeTextMulti(document, s.title);
@@ -1235,8 +1261,12 @@
     if (isConfirmation) {
       job.status = 'applied';
       await saveJob(job);
-      // Capture for review/push from the popup
-      pushApplicationToNotion(jobId).catch(() => {});
+      // Silently expand the "more" toggle so the description scrape captures
+      // the full text before pushing, then push + install a manual hook as
+      // backup in case auto-expand misses a non-standard toggle.
+      try { await expandDescriptionIfTruncated(); } catch (e) { /* ignore */ }
+      await pushApplicationToNotion(jobId).catch(() => {});
+      hookConfirmationMoreClick(jobId);
     }
   }
 
